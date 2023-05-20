@@ -48,13 +48,13 @@ impl std::fmt::Display for LockfileError {
 
 impl std::error::Error for LockfileError {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
   pub integrity: String,
   pub dependencies: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Hash)]
 pub struct NpmContent {
   /// Mapping between requests for npm packages and resolved packages, eg.
   /// {
@@ -81,7 +81,7 @@ impl NpmContent {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct LockfileContent {
   version: String,
   // Mapping between URLs and their checksums for "http:" and "https:" deps
@@ -101,7 +101,7 @@ impl LockfileContent {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct Lockfile {
   pub overwrite: bool,
   pub has_content_changed: bool,
