@@ -110,6 +110,8 @@ pub struct Lockfile {
 }
 
 impl Lockfile {
+  /// Create a new [`Lockfile`] instance from a given filename. The content of
+  /// the file is read from the filesystem using [`std::fs::read_to_string`].
   pub fn new(filename: PathBuf, overwrite: bool) -> Result<Lockfile, Error> {
     // Writing a lock file always uses the new format.
     if overwrite {
@@ -139,7 +141,27 @@ impl Lockfile {
 
     let s =
       result.map_err(|_| Error::ReadError(filename.display().to_string()))?;
-    let value: serde_json::Value = serde_json::from_str(&s)
+
+    Self::with_lockfile_content(filename, &s, overwrite)
+  }
+
+  /// Create a new [`Lockfile`] instance from given filename and its content.
+  pub fn with_lockfile_content(
+    filename: PathBuf,
+    content: &str,
+    overwrite: bool,
+  ) -> Result<Lockfile, Error> {
+    // Writing a lock file always uses the new format.
+    if overwrite {
+      return Ok(Lockfile {
+        overwrite,
+        has_content_changed: false,
+        content: LockfileContent::empty(),
+        filename,
+      });
+    }
+
+    let value: serde_json::Value = serde_json::from_str(content)
       .map_err(|_| Error::ParseError(filename.display().to_string()))?;
     let version = value.get("version").and_then(|v| v.as_str());
     let content = if version == Some("2") {
@@ -299,38 +321,38 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
 #[cfg(test)]
 mod tests {
   use super::*;
-  use serde_json::json;
   use std::fs::File;
   use std::io::prelude::*;
   use std::io::Write;
   use temp_dir::TempDir;
 
+  const LOCKFILE_JSON: &str = r#"
+{
+  "version": "2",
+  "remote": {
+    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
+  },
+  "npm": {
+    "specifiers": {},
+    "packages": {
+      "nanoid@3.3.4": {
+        "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
+        "dependencies": {}
+      },
+      "picocolors@1.0.0": {
+        "integrity": "sha512-foobar",
+        "dependencies": {}
+      }
+    }
+  }
+}"#;
+
   fn setup(temp_dir: &TempDir) -> PathBuf {
     let file_path = temp_dir.path().join("valid_lockfile.json");
     let mut file = File::create(file_path).expect("write file fail");
 
-    let value: serde_json::Value = json!({
-      "version": "2",
-      "remote": {
-        "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
-        "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
-      },
-      "npm": {
-        "specifiers": {},
-        "packages": {
-          "nanoid@3.3.4": {
-            "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
-            "dependencies": {}
-          },
-          "picocolors@1.0.0": {
-            "integrity": "sha512-foobar",
-            "dependencies": {}
-          },
-        }
-      }
-    });
-
-    file.write_all(value.to_string().as_bytes()).unwrap();
+    file.write_all(LOCKFILE_JSON.as_bytes()).unwrap();
 
     temp_dir.path().join("valid_lockfile.json")
   }
@@ -347,6 +369,23 @@ mod tests {
     let file_path = setup(&temp_dir);
 
     let result = Lockfile::new(file_path, false).unwrap();
+
+    let remote = result.content.remote;
+    let keys: Vec<String> = remote.keys().cloned().collect();
+    let expected_keys = vec![
+      String::from("https://deno.land/std@0.71.0/async/delay.ts"),
+      String::from("https://deno.land/std@0.71.0/textproto/mod.ts"),
+    ];
+
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys, expected_keys);
+  }
+
+  #[test]
+  fn with_lockfile_content_for_valid_lockfile() {
+    let file_path = PathBuf::from("/foo");
+    let result =
+      Lockfile::with_lockfile_content(file_path, LOCKFILE_JSON, false).unwrap();
 
     let remote = result.content.remote;
     let keys: Vec<String> = remote.keys().cloned().collect();
