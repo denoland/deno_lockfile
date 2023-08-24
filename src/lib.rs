@@ -84,11 +84,12 @@ impl NpmContent {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct LockfileContent {
   version: String,
-  // Mapping between URLs and their checksums for "http:" and "https:" deps
-  remote: BTreeMap<String, String>,
+  // have redirects at the top of the file so they're more easily auditable
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
+  /// Mapping between URLs and their checksums for "http:" and "https:" deps
+  remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "NpmContent::is_empty")]
   #[serde(default)]
   pub npm: NpmContent,
@@ -574,10 +575,10 @@ mod tests {
       PathBuf::from("/foo/deno.lock"),
       r#"{
   "version": "2",
-  "remote": {},
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
-  }
+  },
+  "remote": {}
 }"#,
       false,
     )
@@ -590,11 +591,11 @@ mod tests {
       lockfile.as_json_string(),
       r#"{
   "version": "2",
-  "remote": {},
   "redirects": {
     "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
-  }
+  },
+  "remote": {}
 }
 "#,
     );
