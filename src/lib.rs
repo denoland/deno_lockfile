@@ -58,8 +58,8 @@ pub struct NpmPackageInfo {
 pub struct NpmContent {
   /// Mapping between requests for npm packages and resolved packages, eg.
   /// {
-  ///   "chalk": "chalk@5.0.0"
-  ///   "react@17": "react@17.0.1"
+  ///   "chalk": "chalk@5.0.0",
+  ///   "react@17": "react@17.0.1",
   ///   "foo@latest": "foo@1.0.0"
   /// }
   pub specifiers: BTreeMap<String, String>,
@@ -89,6 +89,9 @@ pub struct LockfileContent {
   #[serde(skip_serializing_if = "NpmContent::is_empty")]
   #[serde(default)]
   pub npm: NpmContent,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub redirects: BTreeMap<String, String>,
 }
 
 impl LockfileContent {
@@ -96,7 +99,8 @@ impl LockfileContent {
     Self {
       version: "2".to_string(),
       remote: BTreeMap::new(),
-      npm: NpmContent::default(),
+      npm: Default::default(),
+      redirects: Default::default(),
     }
   }
 }
@@ -177,6 +181,7 @@ impl Lockfile {
         version: "2".to_string(),
         remote,
         npm: NpmContent::default(),
+        redirects: Default::default(),
       }
     };
 
@@ -188,20 +193,24 @@ impl Lockfile {
     })
   }
 
+  pub fn as_json_string(&self) -> String {
+    let mut json_string = serde_json::to_string_pretty(&self.content).unwrap();
+    json_string.push('\n'); // trailing newline in file
+    json_string
+  }
+
   // Synchronize lock file to disk - noop if --lock-write file is not specified.
   pub fn write(&self) -> Result<(), Error> {
     if !self.has_content_changed && !self.overwrite {
       return Ok(());
     }
 
-    let mut json_string = serde_json::to_string_pretty(&self.content).unwrap();
-    json_string.push('\n'); // trailing newline in file
     let mut f = std::fs::OpenOptions::new()
       .write(true)
       .create(true)
       .truncate(true)
       .open(&self.filename)?;
-    f.write_all(json_string.as_bytes())?;
+    f.write_all(self.as_json_string().as_bytes())?;
     Ok(())
   }
 
@@ -321,6 +330,7 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
 #[cfg(test)]
 mod tests {
   use super::*;
+  use pretty_assertions::assert_eq;
   use std::fs::File;
   use std::io::prelude::*;
   use std::io::Write;
@@ -556,5 +566,37 @@ mod tests {
     // Now present in lockfile, should file due to borked integrity
     let check_err = lockfile.check_or_insert_npm_package(npm_package);
     assert!(check_err.is_err());
+  }
+
+  #[test]
+  fn lockfile_with_redirects() {
+    let mut lockfile = Lockfile::with_lockfile_content(
+      PathBuf::from("/foo/deno.lock"),
+      r#"{
+  "version": "2",
+  "remote": {},
+  "redirects": {
+    "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
+  }
+}"#,
+      false,
+    )
+    .unwrap();
+    lockfile.content.redirects.insert(
+      "https://deno.land/x/other/mod.ts".to_string(),
+      "https://deno.land/x/other@0.1.0/mod.ts".to_string(),
+    );
+    assert_eq!(
+      lockfile.as_json_string(),
+      r#"{
+  "version": "2",
+  "remote": {},
+  "redirects": {
+    "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
+    "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
+  }
+}
+"#,
+    );
   }
 }
