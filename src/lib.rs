@@ -318,13 +318,21 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
 
     if maybe_prev.is_none() || maybe_prev != Some(&serialized_package_id) {
       self.has_content_changed = true;
+      self
+        .content
+        .npm
+        .specifiers
+        .insert(serialized_package_req, serialized_package_id);
     }
+  }
 
-    self
-      .content
-      .npm
-      .specifiers
-      .insert(serialized_package_req, serialized_package_id);
+  pub fn insert_redirect(&mut self, from: String, to: String) {
+    let maybe_prev = self.content.redirects.get(&from);
+
+    if maybe_prev.is_none() || maybe_prev != Some(&to) {
+      self.has_content_changed = true;
+      self.content.redirects.insert(from, to);
+    }
   }
 }
 
@@ -594,6 +602,48 @@ mod tests {
   "redirects": {
     "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
+  },
+  "remote": {}
+}
+"#,
+    );
+  }
+
+  #[test]
+  fn test_insert_redirect() {
+    let mut lockfile = Lockfile::with_lockfile_content(
+      PathBuf::from("/foo/deno.lock"),
+      r#"{
+  "version": "2",
+  "redirects": {
+    "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
+  },
+  "remote": {}
+}"#,
+      false,
+    )
+    .unwrap();
+    lockfile.insert_redirect(
+      "https://deno.land/x/std/mod.ts".to_string(),
+      "https://deno.land/std@0.190.0/mod.ts".to_string(),
+    );
+    assert!(!lockfile.has_content_changed);
+    lockfile.insert_redirect(
+      "https://deno.land/x/std/mod.ts".to_string(),
+      "https://deno.land/std@0.190.1/mod.ts".to_string(),
+    );
+    assert!(lockfile.has_content_changed);
+    lockfile.insert_redirect(
+      "https://deno.land/x/std/other.ts".to_string(),
+      "https://deno.land/std@0.190.1/other.ts".to_string(),
+    );
+    assert_eq!(
+      lockfile.as_json_string(),
+      r#"{
+  "version": "2",
+  "redirects": {
+    "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.1/mod.ts",
+    "https://deno.land/x/std/other.ts": "https://deno.land/std@0.190.1/other.ts"
   },
   "remote": {}
 }
