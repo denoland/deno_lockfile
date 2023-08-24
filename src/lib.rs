@@ -81,7 +81,6 @@ impl NpmContent {
   }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct LockfileContent {
   version: String,
@@ -331,11 +330,11 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
 #[cfg(test)]
 mod tests {
   use super::*;
+  use pretty_assertions::assert_eq;
   use std::fs::File;
   use std::io::prelude::*;
   use std::io::Write;
   use temp_dir::TempDir;
-  use pretty_assertions::assert_eq;
 
   const LOCKFILE_JSON: &str = r#"
 {
@@ -581,8 +580,12 @@ mod tests {
   }
 }"#,
       false,
-    ).unwrap();
-    lockfile.content.redirects.insert("https://deno.land/x/other/mod.ts".to_string(), "https://deno.land/x/other@0.1.0/mod.ts".to_string());
+    )
+    .unwrap();
+    lockfile.content.redirects.insert(
+      "https://deno.land/x/other/mod.ts".to_string(),
+      "https://deno.land/x/other@0.1.0/mod.ts".to_string(),
+    );
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
