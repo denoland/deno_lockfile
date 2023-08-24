@@ -100,18 +100,18 @@ impl NpmContent {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct LockfileContent {
   version: String,
-  // order these based on auditability
+  // order these based on auditability (though, right now npm is at the bottom for backwards compat)
   #[serde(skip_serializing_if = "DenoContent::is_empty")]
   #[serde(default)]
   pub deno: DenoContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
+  /// Mapping between URLs and their checksums for "http:" and "https:" deps
+  remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "NpmContent::is_empty")]
   #[serde(default)]
   pub npm: NpmContent,
-  /// Mapping between URLs and their checksums for "http:" and "https:" deps
-  remote: BTreeMap<String, String>,
 }
 
 impl LockfileContent {
