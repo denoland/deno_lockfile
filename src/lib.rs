@@ -86,12 +86,12 @@ pub struct LockfileContent {
   version: String,
   // Mapping between URLs and their checksums for "http:" and "https:" deps
   remote: BTreeMap<String, String>,
-  #[serde(skip_serializing_if = "NpmContent::is_empty")]
-  #[serde(default)]
-  pub npm: NpmContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
+  #[serde(skip_serializing_if = "NpmContent::is_empty")]
+  #[serde(default)]
+  pub npm: NpmContent,
 }
 
 impl LockfileContent {
