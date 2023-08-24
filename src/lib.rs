@@ -88,20 +88,20 @@ pub struct LockfileContent {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
-  /// Mapping between URLs and their checksums for "http:" and "https:" deps
-  remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "NpmContent::is_empty")]
   #[serde(default)]
   pub npm: NpmContent,
+  /// Mapping between URLs and their checksums for "http:" and "https:" deps
+  remote: BTreeMap<String, String>,
 }
 
 impl LockfileContent {
   fn empty() -> Self {
     Self {
       version: "2".to_string(),
-      remote: BTreeMap::new(),
-      npm: Default::default(),
       redirects: Default::default(),
+      npm: Default::default(),
+      remote: BTreeMap::new(),
     }
   }
 }
@@ -180,9 +180,9 @@ impl Lockfile {
         .map_err(|_| Error::ParseError(filename.display().to_string()))?;
       LockfileContent {
         version: "2".to_string(),
-        remote,
-        npm: NpmContent::default(),
         redirects: Default::default(),
+        npm: NpmContent::default(),
+        remote,
       }
     };
 
@@ -340,10 +340,6 @@ mod tests {
   const LOCKFILE_JSON: &str = r#"
 {
   "version": "2",
-  "remote": {
-    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
-    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
-  },
   "npm": {
     "specifiers": {},
     "packages": {
@@ -356,6 +352,10 @@ mod tests {
         "dependencies": {}
       }
     }
+  },
+  "remote": {
+    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
   }
 }"#;
 
