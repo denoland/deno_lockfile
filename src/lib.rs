@@ -48,6 +48,22 @@ impl std::fmt::Display for LockfileError {
 
 impl std::error::Error for LockfileError {}
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Hash)]
+pub struct DenoContent {
+  /// Mapping between requests for deno packages and resolved packages, eg.
+  /// {
+  ///   "path": "@std/path@1.0.0",
+  ///   "@foo/bar@^2.1": "@foo/bar@2.1.3"
+  /// }
+  pub specifiers: BTreeMap<String, String>,
+}
+
+impl DenoContent {
+  fn is_empty(&self) -> bool {
+    self.specifiers.is_empty()
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
   pub integrity: String,
@@ -84,24 +100,28 @@ impl NpmContent {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct LockfileContent {
   version: String,
-  // have redirects at the top of the file so they're more easily auditable
+  // order these based on auditability
+  #[serde(skip_serializing_if = "DenoContent::is_empty")]
+  #[serde(default)]
+  pub deno: DenoContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
-  /// Mapping between URLs and their checksums for "http:" and "https:" deps
-  remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "NpmContent::is_empty")]
   #[serde(default)]
   pub npm: NpmContent,
+  /// Mapping between URLs and their checksums for "http:" and "https:" deps
+  remote: BTreeMap<String, String>,
 }
 
 impl LockfileContent {
   fn empty() -> Self {
     Self {
       version: "2".to_string(),
-      remote: BTreeMap::new(),
-      npm: Default::default(),
+      deno: Default::default(),
       redirects: Default::default(),
+      npm: Default::default(),
+      remote: BTreeMap::new(),
     }
   }
 }
@@ -180,9 +200,10 @@ impl Lockfile {
         .map_err(|_| Error::ParseError(filename.display().to_string()))?;
       LockfileContent {
         version: "2".to_string(),
-        remote,
-        npm: NpmContent::default(),
+        deno: Default::default(),
         redirects: Default::default(),
+        npm: Default::default(),
+        remote,
       }
     };
 
@@ -309,6 +330,23 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
     self.has_content_changed = true;
   }
 
+  pub fn insert_deno_specifier(
+    &mut self,
+    serialized_package_req: String,
+    serialized_package_id: String,
+  ) {
+    let maybe_prev = self.content.deno.specifiers.get(&serialized_package_req);
+
+    if maybe_prev.is_none() || maybe_prev != Some(&serialized_package_id) {
+      self.has_content_changed = true;
+      self
+        .content
+        .deno
+        .specifiers
+        .insert(serialized_package_req, serialized_package_id);
+    }
+  }
+
   pub fn insert_npm_specifier(
     &mut self,
     serialized_package_req: String,
@@ -348,10 +386,6 @@ mod tests {
   const LOCKFILE_JSON: &str = r#"
 {
   "version": "2",
-  "remote": {
-    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
-    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
-  },
   "npm": {
     "specifiers": {},
     "packages": {
@@ -364,6 +398,10 @@ mod tests {
         "dependencies": {}
       }
     }
+  },
+  "remote": {
+    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
   }
 }"#;
 
@@ -644,6 +682,52 @@ mod tests {
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.1/mod.ts",
     "https://deno.land/x/std/other.ts": "https://deno.land/std@0.190.1/other.ts"
+  },
+  "remote": {}
+}
+"#,
+    );
+  }
+
+  #[test]
+  fn test_insert_deno() {
+    let mut lockfile = Lockfile::with_lockfile_content(
+      PathBuf::from("/foo/deno.lock"),
+      r#"{
+  "version": "2",
+  "deno": {
+    "specifiers": {
+      "path": "@std/path@0.75.0"
+    }
+  },
+  "remote": {}
+}"#,
+      false,
+    )
+    .unwrap();
+    lockfile.insert_deno_specifier(
+      "path".to_string(),
+      "@std/path@0.75.0".to_string(),
+    );
+    assert!(!lockfile.has_content_changed);
+    lockfile.insert_deno_specifier(
+      "path".to_string(),
+      "@std/path@0.75.1".to_string(),
+    );
+    assert!(lockfile.has_content_changed);
+    lockfile.insert_deno_specifier(
+      "@foo/bar@^2".to_string(),
+      "@foo/bar@2.1.2".to_string(),
+    );
+    assert_eq!(
+      lockfile.as_json_string(),
+      r#"{
+  "version": "2",
+  "deno": {
+    "specifiers": {
+      "@foo/bar@^2": "@foo/bar@2.1.2",
+      "path": "@std/path@0.75.1"
+    }
   },
   "remote": {}
 }
