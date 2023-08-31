@@ -375,8 +375,8 @@ mod tests {
     }
   },
   "remote": {
-    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
-    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
+    "https://deno.land/std@0.71.0/textproto/mod.ts": "sha512-3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+    "https://deno.land/std@0.71.0/async/delay.ts": "sha512-35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
   }
 }"#;
 
@@ -393,6 +393,21 @@ mod tests {
   fn create_lockfile_for_nonexistent_path() {
     let file_path = PathBuf::from("nonexistent_lock_file.json");
     assert!(Lockfile::new(file_path, false).is_ok());
+  }
+
+  #[test]
+  fn future_version_unsupported() {
+    let file_path = PathBuf::from("lockfile.json");
+    assert_eq!(
+      Lockfile::with_lockfile_content(
+        file_path,
+        "{ \"version\": \"2000\" }",
+        false
+      )
+      .err()
+      .unwrap().to_string(),
+      "Unable to parse contents of lockfile. Unsupported lockfile version: 2000".to_string()
+    );
   }
 
   #[test]
