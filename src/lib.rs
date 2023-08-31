@@ -184,7 +184,7 @@ impl Lockfile {
       None => transforms::transform1_to_2(transforms::transform2_to_3(value)),
       Some(version) => {
         return Err(Error::ParseError(format!(
-          "Unsupported lockfile version: {}",
+          "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile.",
           version
         )))
       }
@@ -406,7 +406,7 @@ mod tests {
       )
       .err()
       .unwrap().to_string(),
-      "Unable to parse contents of lockfile. Unsupported lockfile version: 2000".to_string()
+      "Unable to parse contents of lockfile. Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
     );
   }
 
