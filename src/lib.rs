@@ -181,7 +181,7 @@ impl Lockfile {
     let value = match version {
       Some("3") => value,
       Some("2") => transforms::transform2_to_3(value),
-      None => transforms::transform1_to_2(transforms::transform2_to_3(value)),
+      None => transforms::transform2_to_3(transforms::transform1_to_2(value)),
       Some(version) => {
         return Err(Error::ParseError(format!(
           "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile.",
@@ -723,5 +723,57 @@ mod tests {
 }
 "#,
     );
+  }
+
+  #[test]
+  fn read_version_1() {
+    let content: &str = r#"{
+      "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+      "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
+    }"#;
+    let file_path = PathBuf::from("lockfile.json");
+    let lockfile =
+      Lockfile::with_lockfile_content(file_path, content, false).unwrap();
+    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.remote.len(), 2);
+  }
+
+  #[test]
+  fn read_version_2() {
+    let content: &str = r#"{
+      "version": "2",
+      "remote": {
+        "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+        "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
+      },
+      "npm": {
+        "specifiers": {
+          "nanoid": "nanoid@3.3.4"
+        },
+        "packages": {
+          "nanoid@3.3.4": {
+            "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
+            "dependencies": {}
+          },
+          "picocolors@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": {}
+          }
+        }
+      }
+    }"#;
+    let file_path = PathBuf::from("lockfile.json");
+    let lockfile =
+      Lockfile::with_lockfile_content(file_path, content, false).unwrap();
+    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.packages.npm.len(), 2);
+    assert_eq!(
+      lockfile.content.packages.specifiers,
+      BTreeMap::from([(
+        "npm:nanoid".to_string(),
+        "npm:nanoid@3.3.4".to_string()
+      ),])
+    );
+    assert_eq!(lockfile.content.remote.len(), 2);
   }
 }
