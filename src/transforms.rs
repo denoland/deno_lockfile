@@ -19,10 +19,7 @@ pub fn transform2_to_3(mut json: JsonMap) -> JsonMap {
     {
       let mut new_specifiers = JsonMap::new();
       for (key, value) in specifiers {
-        if let serde_json::Value::String(value) = value {
-          new_specifiers
-            .insert(format!("npm:{}", key), format!("npm:{}", value).into());
-        }
+        new_specifiers.insert(format!("npm:{}", key), value);
       }
       if !new_specifiers.is_empty() {
         new_obj.insert("specifiers".into(), new_specifiers.into());
@@ -102,7 +99,7 @@ mod test {
       },
       "packages": {
         "specifiers": {
-          "npm:nanoid": "npm:nanoid@3.3.4",
+          "npm:nanoid": "nanoid@3.3.4",
         },
         "npm": {
           "nanoid@3.3.4": {

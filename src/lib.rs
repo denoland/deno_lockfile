@@ -687,7 +687,7 @@ mod tests {
   "version": "3",
   "packages": {
     "specifiers": {
-      "deno:path": "deno:@std/path@0.75.0"
+      "deno:path": "@std/path@0.75.0"
     }
   },
   "remote": {}
@@ -697,17 +697,17 @@ mod tests {
     .unwrap();
     lockfile.insert_package_specifier(
       "deno:path".to_string(),
-      "deno:@std/path@0.75.0".to_string(),
+      "@std/path@0.75.0".to_string(),
     );
     assert!(!lockfile.has_content_changed);
     lockfile.insert_package_specifier(
       "deno:path".to_string(),
-      "deno:@std/path@0.75.1".to_string(),
+      "@std/path@0.75.1".to_string(),
     );
     assert!(lockfile.has_content_changed);
     lockfile.insert_package_specifier(
       "deno:@foo/bar@^2".to_string(),
-      "deno:@foo/bar@2.1.2".to_string(),
+      "@foo/bar@2.1.2".to_string(),
     );
     assert_eq!(
       lockfile.as_json_string(),
@@ -715,8 +715,8 @@ mod tests {
   "version": "3",
   "packages": {
     "specifiers": {
-      "deno:@foo/bar@^2": "deno:@foo/bar@2.1.2",
-      "deno:path": "deno:@std/path@0.75.1"
+      "deno:@foo/bar@^2": "@foo/bar@2.1.2",
+      "deno:path": "@std/path@0.75.1"
     }
   },
   "remote": {}
@@ -769,10 +769,7 @@ mod tests {
     assert_eq!(lockfile.content.packages.npm.len(), 2);
     assert_eq!(
       lockfile.content.packages.specifiers,
-      BTreeMap::from([(
-        "npm:nanoid".to_string(),
-        "npm:nanoid@3.3.4".to_string()
-      ),])
+      BTreeMap::from([("npm:nanoid".to_string(), "nanoid@3.3.4".to_string()),])
     );
     assert_eq!(lockfile.content.remote.len(), 2);
   }
