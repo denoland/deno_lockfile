@@ -11,6 +11,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::path::PathBuf;
 
+mod transforms;
+
 pub struct NpmPackageLockfileInfo {
   pub display_id: String,
   pub serialized_id: String,
@@ -55,14 +57,18 @@ pub struct NpmPackageInfo {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Hash)]
-pub struct NpmContent {
-  /// Mapping between requests for npm packages and resolved packages, eg.
+pub struct PackagesContent {
+  /// Mapping between requests for deno specifiers and resolved packages, eg.
   /// {
-  ///   "chalk": "chalk@5.0.0",
-  ///   "react@17": "react@17.0.1",
-  ///   "foo@latest": "foo@1.0.0"
+  ///   "deno:path": "deno:@std/path@1.0.0",
+  ///   "deno:ts-morph@11": "npm:ts-morph@11.0.0",
+  ///   "deno:@foo/bar@^2.1": "deno:@foo/bar@2.1.3",
+  ///   "npm:@ts-morph/common@^11": "npm:@ts-morph/common@11.0.0",
   /// }
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
   pub specifiers: BTreeMap<String, String>,
+
   /// Mapping between resolved npm specifiers and their associated info, eg.
   /// {
   ///   "chalk@5.0.0": {
@@ -72,36 +78,38 @@ pub struct NpmContent {
   ///     }
   ///   }
   /// }
-  pub packages: BTreeMap<String, NpmPackageInfo>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub npm: BTreeMap<String, NpmPackageInfo>,
 }
 
-impl NpmContent {
+impl PackagesContent {
   fn is_empty(&self) -> bool {
-    self.specifiers.is_empty() && self.packages.is_empty()
+    self.specifiers.is_empty() && self.npm.is_empty()
   }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct LockfileContent {
   version: String,
-  // have redirects at the top of the file so they're more easily auditable
+  // order these based on auditability
+  #[serde(skip_serializing_if = "PackagesContent::is_empty")]
+  #[serde(default)]
+  pub packages: PackagesContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
   remote: BTreeMap<String, String>,
-  #[serde(skip_serializing_if = "NpmContent::is_empty")]
-  #[serde(default)]
-  pub npm: NpmContent,
 }
 
 impl LockfileContent {
   fn empty() -> Self {
     Self {
-      version: "2".to_string(),
-      remote: BTreeMap::new(),
-      npm: Default::default(),
+      version: "3".to_string(),
+      packages: Default::default(),
       redirects: Default::default(),
+      remote: BTreeMap::new(),
     }
   }
 }
@@ -166,25 +174,26 @@ impl Lockfile {
       });
     }
 
-    let value: serde_json::Value = serde_json::from_str(content)
-      .map_err(|_| Error::ParseError(filename.display().to_string()))?;
-    let version = value.get("version").and_then(|v| v.as_str());
-    let content = if version == Some("2") {
-      serde_json::from_value::<LockfileContent>(value)
-        .map_err(|_| Error::ParseError(filename.display().to_string()))?
-    } else {
-      // If there's no version field, we assume that user is using the old
-      // version of the lockfile. We'll migrate it in-place into v2 and it
-      // will be written in v2 if user uses `--lock-write` flag.
-      let remote: BTreeMap<String, String> = serde_json::from_value(value)
+    let value: serde_json::Map<String, serde_json::Value> =
+      serde_json::from_str(content)
         .map_err(|_| Error::ParseError(filename.display().to_string()))?;
-      LockfileContent {
-        version: "2".to_string(),
-        remote,
-        npm: NpmContent::default(),
-        redirects: Default::default(),
+    let version = value.get("version").and_then(|v| v.as_str());
+    let value = match version {
+      Some("3") => value,
+      Some("2") => transforms::transform2_to_3(value),
+      None => transforms::transform2_to_3(transforms::transform1_to_2(value)),
+      Some(version) => {
+        return Err(Error::ParseError(format!(
+          "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile.",
+          version
+        )))
       }
     };
+    let content = serde_json::from_value::<LockfileContent>(value.into())
+      .map_err(|err| {
+        eprintln!("ERROR: {:#}", err);
+        Error::ParseError(filename.display().to_string())
+      })?;
 
     Ok(Lockfile {
       overwrite,
@@ -240,7 +249,7 @@ impl Lockfile {
   ) -> Result<(), LockfileError> {
     if self.overwrite {
       // In case --lock-write is specified check always passes
-      self.insert_npm(package_info);
+      self.insert_npm_package(package_info);
       Ok(())
     } else {
       self.check_or_insert_npm(package_info)
@@ -270,7 +279,7 @@ impl Lockfile {
     package: NpmPackageLockfileInfo,
   ) -> Result<(), LockfileError> {
     if let Some(package_info) =
-      self.content.npm.packages.get(&package.serialized_id)
+      self.content.packages.npm.get(&package.serialized_id)
     {
       if package_info.integrity.as_str() != package.integrity {
         return Err(LockfileError(format!(
@@ -286,20 +295,20 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
           )));
       }
     } else {
-      self.insert_npm(package);
+      self.insert_npm_package(package);
     }
 
     Ok(())
   }
 
-  fn insert_npm(&mut self, package_info: NpmPackageLockfileInfo) {
+  fn insert_npm_package(&mut self, package_info: NpmPackageLockfileInfo) {
     let dependencies = package_info
       .dependencies
       .iter()
       .map(|dep| (dep.name.to_string(), dep.id.to_string()))
       .collect::<BTreeMap<String, String>>();
 
-    self.content.npm.packages.insert(
+    self.content.packages.npm.insert(
       package_info.serialized_id.to_string(),
       NpmPackageInfo {
         integrity: package_info.integrity,
@@ -309,18 +318,22 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
     self.has_content_changed = true;
   }
 
-  pub fn insert_npm_specifier(
+  pub fn insert_package_specifier(
     &mut self,
     serialized_package_req: String,
     serialized_package_id: String,
   ) {
-    let maybe_prev = self.content.npm.specifiers.get(&serialized_package_req);
+    let maybe_prev = self
+      .content
+      .packages
+      .specifiers
+      .get(&serialized_package_req);
 
     if maybe_prev.is_none() || maybe_prev != Some(&serialized_package_id) {
       self.has_content_changed = true;
       self
         .content
-        .npm
+        .packages
         .specifiers
         .insert(serialized_package_req, serialized_package_id);
     }
@@ -347,14 +360,10 @@ mod tests {
 
   const LOCKFILE_JSON: &str = r#"
 {
-  "version": "2",
-  "remote": {
-    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
-    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
-  },
-  "npm": {
+  "version": "3",
+  "packages": {
     "specifiers": {},
-    "packages": {
+    "npm": {
       "nanoid@3.3.4": {
         "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
         "dependencies": {}
@@ -364,6 +373,10 @@ mod tests {
         "dependencies": {}
       }
     }
+  },
+  "remote": {
+    "https://deno.land/std@0.71.0/textproto/mod.ts": "sha512-3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+    "https://deno.land/std@0.71.0/async/delay.ts": "sha512-35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
   }
 }"#;
 
@@ -380,6 +393,21 @@ mod tests {
   fn create_lockfile_for_nonexistent_path() {
     let file_path = PathBuf::from("nonexistent_lock_file.json");
     assert!(Lockfile::new(file_path, false).is_ok());
+  }
+
+  #[test]
+  fn future_version_unsupported() {
+    let file_path = PathBuf::from("lockfile.json");
+    assert_eq!(
+      Lockfile::with_lockfile_content(
+        file_path,
+        "{ \"version\": \"2000\" }",
+        false
+      )
+      .err()
+      .unwrap().to_string(),
+      "Unable to parse contents of lockfile. Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
+    );
   }
 
   #[test]
@@ -582,7 +610,7 @@ mod tests {
     let mut lockfile = Lockfile::with_lockfile_content(
       PathBuf::from("/foo/deno.lock"),
       r#"{
-  "version": "2",
+  "version": "3",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
   },
@@ -598,7 +626,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "2",
+  "version": "3",
   "redirects": {
     "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
@@ -614,7 +642,7 @@ mod tests {
     let mut lockfile = Lockfile::with_lockfile_content(
       PathBuf::from("/foo/deno.lock"),
       r#"{
-  "version": "2",
+  "version": "3",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
   },
@@ -640,7 +668,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "2",
+  "version": "3",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.1/mod.ts",
     "https://deno.land/x/std/other.ts": "https://deno.land/std@0.190.1/other.ts"
@@ -649,5 +677,103 @@ mod tests {
 }
 "#,
     );
+  }
+
+  #[test]
+  fn test_insert_deno() {
+    let mut lockfile = Lockfile::with_lockfile_content(
+      PathBuf::from("/foo/deno.lock"),
+      r#"{
+  "version": "3",
+  "packages": {
+    "specifiers": {
+      "deno:path": "deno:@std/path@0.75.0"
+    }
+  },
+  "remote": {}
+}"#,
+      false,
+    )
+    .unwrap();
+    lockfile.insert_package_specifier(
+      "deno:path".to_string(),
+      "deno:@std/path@0.75.0".to_string(),
+    );
+    assert!(!lockfile.has_content_changed);
+    lockfile.insert_package_specifier(
+      "deno:path".to_string(),
+      "deno:@std/path@0.75.1".to_string(),
+    );
+    assert!(lockfile.has_content_changed);
+    lockfile.insert_package_specifier(
+      "deno:@foo/bar@^2".to_string(),
+      "deno:@foo/bar@2.1.2".to_string(),
+    );
+    assert_eq!(
+      lockfile.as_json_string(),
+      r#"{
+  "version": "3",
+  "packages": {
+    "specifiers": {
+      "deno:@foo/bar@^2": "deno:@foo/bar@2.1.2",
+      "deno:path": "deno:@std/path@0.75.1"
+    }
+  },
+  "remote": {}
+}
+"#,
+    );
+  }
+
+  #[test]
+  fn read_version_1() {
+    let content: &str = r#"{
+      "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+      "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
+    }"#;
+    let file_path = PathBuf::from("lockfile.json");
+    let lockfile =
+      Lockfile::with_lockfile_content(file_path, content, false).unwrap();
+    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.remote.len(), 2);
+  }
+
+  #[test]
+  fn read_version_2() {
+    let content: &str = r#"{
+      "version": "2",
+      "remote": {
+        "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+        "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
+      },
+      "npm": {
+        "specifiers": {
+          "nanoid": "nanoid@3.3.4"
+        },
+        "packages": {
+          "nanoid@3.3.4": {
+            "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
+            "dependencies": {}
+          },
+          "picocolors@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": {}
+          }
+        }
+      }
+    }"#;
+    let file_path = PathBuf::from("lockfile.json");
+    let lockfile =
+      Lockfile::with_lockfile_content(file_path, content, false).unwrap();
+    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.packages.npm.len(), 2);
+    assert_eq!(
+      lockfile.content.packages.specifiers,
+      BTreeMap::from([(
+        "npm:nanoid".to_string(),
+        "npm:nanoid@3.3.4".to_string()
+      ),])
+    );
+    assert_eq!(lockfile.content.remote.len(), 2);
   }
 }
