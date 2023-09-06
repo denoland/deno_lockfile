@@ -769,7 +769,7 @@ mod tests {
     assert_eq!(lockfile.content.packages.npm.len(), 2);
     assert_eq!(
       lockfile.content.packages.specifiers,
-      BTreeMap::from([("npm:nanoid".to_string(), "nanoid@3.3.4".to_string()),])
+      BTreeMap::from([("npm:nanoid".to_string(), "3.3.4".to_string()),])
     );
     assert_eq!(lockfile.content.remote.len(), 2);
   }
