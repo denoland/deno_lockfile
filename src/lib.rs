@@ -375,8 +375,8 @@ mod tests {
     }
   },
   "remote": {
-    "https://deno.land/std@0.71.0/textproto/mod.ts": "sha512-3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
-    "https://deno.land/std@0.71.0/async/delay.ts": "sha512-35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
+    "https://deno.land/std@0.71.0/textproto/mod.ts": "3118d7a42c03c242c5a49c2ad91c8396110e14acca1324e7aaefd31a999b71a4",
+    "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
   }
 }"#;
 
@@ -772,7 +772,7 @@ mod tests {
       BTreeMap::from([(
         "npm:nanoid".to_string(),
         "npm:nanoid@3.3.4".to_string()
-      ),])
+      )])
     );
     assert_eq!(lockfile.content.remote.len(), 2);
   }
