@@ -30,13 +30,6 @@ pub fn transform2_to_3(mut json: JsonMap) -> JsonMap {
     }
     json.insert("packages".into(), new_obj.into());
   }
-  if let Some(serde_json::Value::Object(remote_obj)) = json.get_mut("remote") {
-    for (_, value) in remote_obj.iter_mut() {
-      if let serde_json::Value::String(value) = value {
-        *value = format!("sha256-{}", value);
-      }
-    }
-  }
 
   json
 }
@@ -97,8 +90,8 @@ mod test {
     assert_eq!(result, serde_json::from_value(json!({
       "version": "3",
       "remote": {
-        "https://github.com/": "sha256-asdf",
-        "https://github.com/mod.ts": "sha256-asdf2",
+        "https://github.com/": "asdf",
+        "https://github.com/mod.ts": "asdf2",
       },
       "packages": {
         "specifiers": {
