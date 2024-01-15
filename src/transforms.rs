@@ -1,3 +1,5 @@
+// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+
 pub type JsonMap = serde_json::Map<String, serde_json::Value>;
 
 pub fn transform1_to_2(json: JsonMap) -> JsonMap {
