@@ -1,17 +1,49 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 mod error;
-pub use error::LockfileError as Error;
 
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::io::Write;
+use std::path::PathBuf;
 
+use deno_semver::npm::NpmPackageId;
+use deno_semver::npm::NpmPackageIdDeserializationError;
+use deno_semver::package::PackageReq;
+use deno_semver::package::PackageReqParseError;
+use indexmap::IndexMap;
 use ring::digest;
 use serde::Deserialize;
 use serde::Serialize;
-use std::path::PathBuf;
 
 mod transforms;
+
+pub use error::LockfileError as Error;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum LockfileNpmSnapshotDeserializationError {
+  #[error("Unable to parse npm specifier: {key}")]
+  ReqParse {
+    key: String,
+    #[source]
+    source: PackageReqParseError,
+  },
+  #[error(transparent)]
+  PackageIdDeserialization(#[from] NpmPackageIdDeserializationError),
+}
+
+#[derive(Debug, Clone)]
+pub struct LockfileNpmPackageInfo {
+  pub id: NpmPackageId,
+  pub dependencies: HashMap<String, NpmPackageId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LockfileNpmSnapshot {
+  pub root_packages: HashMap<PackageReq, NpmPackageId>,
+  pub packages: Vec<LockfileNpmPackageInfo>,
+}
 
 pub struct NpmPackageLockfileInfo {
   pub display_id: String,
@@ -89,7 +121,47 @@ impl PackagesContent {
   }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LockfileImportMap {
+  #[serde(skip_serializing_if = "IndexMap::is_empty")]
+  #[serde(default)]
+  pub imports: IndexMap<String, String>,
+  #[serde(skip_serializing_if = "IndexMap::is_empty")]
+  #[serde(default)]
+  pub scopes: IndexMap<String, IndexMap<String, String>>,
+}
+
+// IndexMap doesn't implement Hash, so we need to do it ourselves
+impl std::hash::Hash for LockfileImportMap {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    for (key, value) in &self.imports {
+      key.hash(state);
+      value.hash(state);
+    }
+    for (key, scope_map) in &self.scopes {
+      key.hash(state);
+      for (scope_key, scope_value) in scope_map {
+        scope_key.hash(state);
+        scope_value.hash(state);
+      }
+    }
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct LockfilePackageJsonDeps {
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub dependencies: BTreeMap<String, String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub dev_dependencies: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
   version: String,
   // order these based on auditability
@@ -101,6 +173,12 @@ pub struct LockfileContent {
   pub redirects: BTreeMap<String, String>,
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
   remote: BTreeMap<String, String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
+  pub import_map: Option<LockfileImportMap>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
+  pub package_json: Option<LockfilePackageJsonDeps>,
 }
 
 impl LockfileContent {
@@ -110,7 +188,52 @@ impl LockfileContent {
       packages: Default::default(),
       redirects: Default::default(),
       remote: BTreeMap::new(),
+      import_map: None,
+      package_json: None,
     }
+  }
+
+  pub fn as_lockfile_npm_snapshot(
+    &self,
+  ) -> Result<LockfileNpmSnapshot, LockfileNpmSnapshotDeserializationError> {
+    let mut root_packages = HashMap::<PackageReq, NpmPackageId>::with_capacity(
+      self.packages.specifiers.len(),
+    );
+    // collect the specifiers to version mappings
+    for (key, value) in &self.packages.specifiers {
+      if let Some(key) = key.strip_prefix("npm:") {
+        if let Some(value) = value.strip_prefix("npm:") {
+          let package_req = PackageReq::from_str(key).map_err(|e| {
+            LockfileNpmSnapshotDeserializationError::ReqParse {
+              key: key.to_string(),
+              source: e,
+            }
+          })?;
+          let package_id = NpmPackageId::from_serialized(value)?;
+          root_packages.insert(package_req, package_id.clone());
+        }
+      }
+    }
+
+    // now fill the packages except for the dist information
+    let mut packages = Vec::with_capacity(self.packages.npm.len());
+    for (key, package) in &self.packages.npm {
+      let id = NpmPackageId::from_serialized(key)?;
+
+      // collect the dependencies
+      let mut dependencies = HashMap::with_capacity(package.dependencies.len());
+      for (name, specifier) in &package.dependencies {
+        let dep_id = NpmPackageId::from_serialized(specifier)?;
+        dependencies.insert(name.clone(), dep_id);
+      }
+
+      packages.push(LockfileNpmPackageInfo { id, dependencies });
+    }
+
+    Ok(LockfileNpmSnapshot {
+      root_packages,
+      packages,
+    })
   }
 }
 
