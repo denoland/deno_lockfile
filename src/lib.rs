@@ -4,13 +4,11 @@ mod error;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::io::Write;
 use std::path::PathBuf;
 
-use deno_semver::npm::NpmPackageId;
-use deno_semver::npm::NpmPackageIdDeserializationError;
-use deno_semver::package::PackageReq;
-use deno_semver::package::PackageReqParseError;
 use indexmap::IndexMap;
 use ring::digest;
 use serde::Deserialize;
@@ -19,30 +17,116 @@ use serde::Serialize;
 mod transforms;
 
 pub use error::LockfileError as Error;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum LockfileNpmSnapshotDeserializationError {
-  #[error("Unable to parse npm specifier: {key}")]
-  ReqParse {
-    key: String,
-    #[source]
-    source: PackageReqParseError,
-  },
-  #[error(transparent)]
-  PackageIdDeserialization(#[from] NpmPackageIdDeserializationError),
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct LockfileNpmPackageId(String);
+
+struct LockfileNpmGraphPackage {
+  reference_count: usize,
+  integrity: String,
+  dependencies: BTreeMap<String, LockfileNpmPackageId>,
 }
 
-#[derive(Debug, Clone)]
-pub struct LockfileNpmPackageInfo {
-  pub id: NpmPackageId,
-  pub dependencies: HashMap<String, NpmPackageId>,
+struct LockfileNpmGraph {
+  pub root_packages: HashMap<String, LockfileNpmPackageId>,
+  pub packages: HashMap<LockfileNpmPackageId, LockfileNpmGraphPackage>,
 }
 
-#[derive(Debug, Clone)]
-pub struct LockfileNpmSnapshot {
-  pub root_packages: HashMap<PackageReq, NpmPackageId>,
-  pub packages: Vec<LockfileNpmPackageInfo>,
+impl LockfileNpmGraph {
+  pub fn from_lockfile(content: &PackagesContent) -> Self {
+    let mut root_packages =
+      HashMap::<String, LockfileNpmPackageId>::with_capacity(
+        content.specifiers.len(),
+      );
+    // collect the specifiers to version mappings
+    for (key, value) in &content.specifiers {
+      if let Some(key) = key.strip_prefix("npm:") {
+        if let Some(value) = value.strip_prefix("npm:") {
+          root_packages
+            .insert(key.to_string(), LockfileNpmPackageId(value.to_string()));
+        }
+      }
+    }
+
+    let mut packages = HashMap::new();
+    for (id, package) in &content.npm {
+      packages.insert(
+        LockfileNpmPackageId(id.clone()),
+        LockfileNpmGraphPackage {
+          reference_count: 0,
+          integrity: package.integrity.clone(),
+          dependencies: package
+            .dependencies
+            .iter()
+            .map(|(key, dep_id)| {
+              (key.clone(), LockfileNpmPackageId(dep_id.clone()))
+            })
+            .collect(),
+        },
+      );
+    }
+
+    let mut visited = HashSet::new();
+    let mut pending = root_packages.values().cloned().collect::<VecDeque<_>>();
+    while let Some(id) = pending.pop_back() {
+      if let Some(package) = packages.get_mut(&id) {
+        package.reference_count += 1;
+        if visited.insert(id) {
+          for dep_id in package.dependencies.values() {
+            pending.push_back(dep_id.clone());
+          }
+        }
+      }
+    }
+
+    Self {
+      root_packages,
+      packages,
+    }
+  }
+
+  pub fn remove_root_package(&mut self, package_req: &String) {
+    let mut pending = VecDeque::new();
+    if let Some(package_id) = self.root_packages.remove(package_req) {
+      pending.push_back(package_id);
+    }
+
+    while let Some(id) = pending.pop_back() {
+      eprintln!("HANDLING: {}", id.0);
+      if let Some(package) = self.packages.get_mut(&id) {
+        package.reference_count -= 1;
+        if package.reference_count == 0 {
+          for dep_id in package.dependencies.values() {
+            pending.push_back(dep_id.clone());
+          }
+          self.packages.remove(&id);
+        }
+      }
+    }
+  }
+
+  fn populate_packages(self, packages: &mut PackagesContent) {
+    for (req, id) in self.root_packages {
+      eprintln!("ADDING: {:#?}", req);
+      packages
+        .specifiers
+        .insert(format!("npm:{}", req), format!("npm:{}", id.0));
+    }
+    for (id, package) in self.packages {
+      eprintln!("ADDING: {}", id.0);
+      packages.npm.insert(
+        id.0,
+        NpmPackageInfo {
+          integrity: package.integrity.clone(),
+          dependencies: package
+            .dependencies
+            .into_iter()
+            .map(|(name, id)| (name, id.0))
+            .collect(),
+        },
+      );
+    }
+  }
 }
 
 pub struct NpmPackageLockfileInfo {
@@ -119,6 +203,14 @@ impl PackagesContent {
   fn is_empty(&self) -> bool {
     self.specifiers.is_empty() && self.npm.is_empty()
   }
+
+  pub fn clear_npm(&mut self) {
+    self.specifiers.retain(|k, v| {
+      let has_npm = k.starts_with("npm:") || v.starts_with("npm:");
+      !has_npm
+    });
+    self.npm.clear();
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,7 +224,8 @@ pub struct LockfileImportMap {
   pub scopes: IndexMap<String, IndexMap<String, String>>,
 }
 
-// IndexMap doesn't implement Hash, so we need to do it ourselves
+// IndexMap doesn't implement Hash, so we need to do this ourselves.
+// Hashing is used in the LSP to tell when the lockfile has changed.
 impl std::hash::Hash for LockfileImportMap {
   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
     for (key, value) in &self.imports {
@@ -147,17 +240,6 @@ impl std::hash::Hash for LockfileImportMap {
       }
     }
   }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "camelCase")]
-pub struct LockfilePackageJsonDeps {
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  #[serde(default)]
-  pub dependencies: BTreeMap<String, String>,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  #[serde(default)]
-  pub dev_dependencies: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
@@ -178,7 +260,7 @@ pub struct LockfileContent {
   pub import_map: Option<LockfileImportMap>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[serde(default)]
-  pub package_json: Option<LockfilePackageJsonDeps>,
+  pub package_json: Option<Vec<String>>,
 }
 
 impl LockfileContent {
@@ -191,49 +273,6 @@ impl LockfileContent {
       import_map: None,
       package_json: None,
     }
-  }
-
-  pub fn as_lockfile_npm_snapshot(
-    &self,
-  ) -> Result<LockfileNpmSnapshot, LockfileNpmSnapshotDeserializationError> {
-    let mut root_packages = HashMap::<PackageReq, NpmPackageId>::with_capacity(
-      self.packages.specifiers.len(),
-    );
-    // collect the specifiers to version mappings
-    for (key, value) in &self.packages.specifiers {
-      if let Some(key) = key.strip_prefix("npm:") {
-        if let Some(value) = value.strip_prefix("npm:") {
-          let package_req = PackageReq::from_str(key).map_err(|e| {
-            LockfileNpmSnapshotDeserializationError::ReqParse {
-              key: key.to_string(),
-              source: e,
-            }
-          })?;
-          let package_id = NpmPackageId::from_serialized(value)?;
-          root_packages.insert(package_req, package_id.clone());
-        }
-      }
-    }
-
-    // now fill the packages except for the dist information
-    let mut packages = Vec::with_capacity(self.packages.npm.len());
-    for (key, package) in &self.packages.npm {
-      let id = NpmPackageId::from_serialized(key)?;
-
-      // collect the dependencies
-      let mut dependencies = HashMap::with_capacity(package.dependencies.len());
-      for (name, specifier) in &package.dependencies {
-        let dep_id = NpmPackageId::from_serialized(specifier)?;
-        dependencies.insert(name.clone(), dep_id);
-      }
-
-      packages.push(LockfileNpmPackageInfo { id, dependencies });
-    }
-
-    Ok(LockfileNpmSnapshot {
-      root_packages,
-      packages,
-    })
   }
 }
 
@@ -287,6 +326,7 @@ impl Lockfile {
     content: &str,
     overwrite: bool,
   ) -> Result<Lockfile, Error> {
+    eprintln!("NEW LOCKFILE: {} {}", filename.display(), overwrite);
     // Writing a lock file always uses the new format.
     if overwrite {
       return Ok(Lockfile {
@@ -332,11 +372,54 @@ impl Lockfile {
     json_string
   }
 
+  pub fn set_package_json_deps(
+    &mut self,
+    package_json_deps: Option<Vec<String>>,
+  ) {
+    if let Some(new_package_json_deps) = package_json_deps {
+      match &mut self.content.package_json {
+        Some(current_package_json) => {
+          if new_package_json_deps != *current_package_json {
+            let current_package_json =
+              std::mem::replace(current_package_json, new_package_json_deps);
+            let mut graph =
+              LockfileNpmGraph::from_lockfile(&self.content.packages);
+            for package_req in &current_package_json {
+              eprintln!("LOOKING AT: {}", package_req);
+              graph.remove_root_package(&package_req);
+            }
+
+            // clear out the npm packages
+            eprintln!("CLEARING OUT");
+            self.content.packages.clear_npm();
+            // now populate the graph back into the packages
+            eprintln!("POPULATING");
+            graph.populate_packages(&mut self.content.packages);
+
+            self.has_content_changed = true;
+            eprintln!("RESULT: {}", self.as_json_string());
+          }
+        }
+        None => {
+          self.content.package_json = Some(new_package_json_deps);
+          // clear out all npm related specifiers when adding a package.json
+          self.content.packages.clear_npm();
+          self.has_content_changed = true;
+        }
+      }
+    } else {
+      // don't clear the package.json field because someone might
+      // be running a one-off script without a package.json
+    }
+  }
+
   // Synchronize lock file to disk - noop if --lock-write file is not specified.
   pub fn write(&self) -> Result<(), Error> {
     if !self.has_content_changed && !self.overwrite {
       return Ok(());
     }
+    eprintln!("WRITING");
+    eprintln!("RESULT: {}", self.as_json_string());
 
     let mut f = std::fs::OpenOptions::new()
       .write(true)
