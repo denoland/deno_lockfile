@@ -142,14 +142,6 @@ impl PackagesContent {
     self.specifiers.is_empty() && self.npm.is_empty()
   }
 
-  fn clear_npm(&mut self) {
-    self.specifiers.retain(|k, v| {
-      let has_npm = k.starts_with("npm:") || v.starts_with("npm:");
-      !has_npm
-    });
-    self.npm.clear();
-  }
-
   fn clear_jsr(&mut self) {
     self.specifiers.retain(|k, v| {
       let has_npm = k.starts_with("jsr:") || v.starts_with("jsr:");
@@ -340,6 +332,14 @@ impl Lockfile {
           .into_iter()
           .flatten(),
       )
+      .chain(
+        self
+          .content
+          .workspaces
+          .members
+          .values()
+          .flat_map(|m| m.deps.iter().map(|s| s.to_string())),
+      )
       .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
     if let Some(new_package_json_deps) = config.package_json_deps {
@@ -412,9 +412,17 @@ impl Lockfile {
     }
 
     // now go through the workspaces
+    let mut unhandled_members = self
+      .content
+      .workspaces
+      .members
+      .keys()
+      .cloned()
+      .collect::<HashSet<_>>();
     for (member_name, new_import_map_deps) in config.members {
       match &mut self.content.workspaces.members.get_mut(&member_name) {
         Some(member) => {
+          unhandled_members.remove(&member_name);
           let current_import_map_deps = &mut member.deps;
           if new_import_map_deps != *current_import_map_deps {
             let old_import_map_deps =
@@ -440,6 +448,13 @@ impl Lockfile {
           );
           self.has_content_changed = true;
         }
+      }
+    }
+
+    for member in unhandled_members {
+      if let Some(member) = self.content.workspaces.members.remove(&member) {
+        removed_deps.extend(member.deps.into_iter());
+        self.has_content_changed = true;
       }
     }
 
