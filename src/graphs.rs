@@ -53,10 +53,14 @@ struct LockfileJsrGraphPackage {
 pub struct LockfilePackageGraph {
   root_packages: HashMap<LockfilePkgReq, LockfilePkgId>,
   packages: HashMap<LockfilePkgId, LockfileGraphPackage>,
+  removed_jsr_packages: Vec<LockfileJsrPkgNv>,
 }
 
 impl LockfilePackageGraph {
-  pub fn from_lockfile(content: &PackagesContent) -> Self {
+  pub fn from_lockfile<'a>(
+    content: &PackagesContent,
+    old_config_file_packages: impl Iterator<Item = &'a str>,
+  ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
         content.specifiers.len(),
@@ -108,7 +112,20 @@ impl LockfilePackageGraph {
     }
 
     let mut visited = HashSet::new();
-    let mut pending = root_packages.values().cloned().collect::<VecDeque<_>>();
+    let mut pending = old_config_file_packages
+      .filter_map(|value| {
+        content.specifiers.get(value).and_then(|value| {
+          if let Some(value) = value.strip_prefix("npm:") {
+            Some(LockfilePkgId::Npm(LockfileNpmPackageId(value.to_string())))
+          } else if let Some(value) = value.strip_prefix("jsr:") {
+            Some(LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string())))
+          } else {
+            None
+          }
+        })
+      })
+      .collect::<VecDeque<_>>();
+    eprintln!("PENDING: {:#?}", pending);
     while let Some(id) = pending.pop_back() {
       if let Some(package) = packages.get_mut(&id) {
         match package {
@@ -137,6 +154,7 @@ impl LockfilePackageGraph {
     Self {
       root_packages,
       packages,
+      removed_jsr_packages: Default::default(),
     }
   }
 
@@ -148,54 +166,69 @@ impl LockfilePackageGraph {
     let mut pending_reqs = package_reqs
       .map(|req| LockfilePkgReq(req.to_string()))
       .collect::<VecDeque<_>>();
+    let mut visited_root_packages =
+      HashSet::with_capacity(self.root_packages.len());
+    visited_root_packages.extend(pending_reqs.iter().cloned());
     while let Some(pending_req) = pending_reqs.pop_front() {
       eprintln!("REMOVING package req: {:#?}", pending_req);
-      if let Some(id) = self.root_packages.remove(&pending_req) {
-        if let LockfilePkgId::Npm(id) = &id {
+      if let Some(id) = self.root_packages.get(&pending_req) {
+        if let LockfilePkgId::Npm(id) = id {
           if let Some(first_part) = id.parts().next() {
             for (req, id) in &self.root_packages {
               if let LockfilePkgId::Npm(id) = &id {
-                if id.parts().any(|part| part == first_part) {
-                  pending_reqs.push_back(req.clone());
+                if id.parts().skip(1).any(|part| part == first_part) {
+                  if visited_root_packages.insert(req.clone()) {
+                    pending_reqs.push_back(req.clone());
+                  }
                 }
               }
             }
           }
         }
-        pending.push_back(id);
+        pending.push_back(id.clone());
       }
     }
 
     while let Some(id) = pending.pop_back() {
+      eprintln!("Looking at pending: {:?}", id);
       if let Some(package) = self.packages.get_mut(&id) {
         match package {
           LockfileGraphPackage::Jsr(package) => {
-            package.reference_count -= 1;
-            if package.reference_count == 0 {
+            eprintln!("Package: {:?} - Count: {}", id, package.reference_count);
+            if package.reference_count > 1 {
+              package.reference_count -= 1;
+            } else {
+              debug_assert_eq!(package.reference_count, 1, "Package: {:?}", id);
               for req in &package.dependencies {
                 if let Some(id) = self.root_packages.get(req) {
                   pending.push_back(id.clone());
                 }
               }
-              self.packages.remove(&id);
-              if let Some((req, _)) =
-                self.root_packages.iter().find(|(_, pkg_nv)| **pkg_nv == id)
-              {
-                self.root_packages.remove(&req.clone());
-              }
+              self.remove_package(id);
             }
           }
           LockfileGraphPackage::Npm(package) => {
-            package.reference_count -= 1;
-            if package.reference_count == 0 {
+            eprintln!("Package: {:?} - Count: {}", id, package.reference_count);
+            if package.reference_count > 1 {
+              package.reference_count -= 1;
+            } else {
+              debug_assert_eq!(package.reference_count, 1, "Package: {:?}", id);
               for dep_id in package.dependencies.values() {
                 pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
               }
-              self.packages.remove(&id);
+              self.remove_package(id);
             }
           }
         }
       }
+    }
+  }
+
+  fn remove_package(&mut self, id: LockfilePkgId) {
+    self.packages.remove(&id);
+    self.root_packages.retain(|_, pkg_id| *pkg_id != id);
+    if let LockfilePkgId::Jsr(nv) = id {
+      self.removed_jsr_packages.push(nv);
     }
   }
 
@@ -244,6 +277,18 @@ impl LockfilePackageGraph {
           );
         }
       }
+    }
+  }
+
+  pub fn clear_remotes_for_removed_jsr_packages(
+    &self,
+    redirects: &mut BTreeMap<String, String>,
+  ) {
+    for nv in &self.removed_jsr_packages {
+      // todo: should be parsed in deno's cli
+      let path = format!("@{}", nv.0[1..].replace("@", "/"));
+      let start = format!("https://jsr.io/{}/", path);
+      redirects.retain(|k, _| !k.starts_with(&start));
     }
   }
 }

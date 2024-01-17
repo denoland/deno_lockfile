@@ -9,8 +9,6 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 
-use deno_semver::jsr;
-use indexmap::IndexMap;
 use ring::digest;
 use serde::Deserialize;
 use serde::Serialize;
@@ -21,6 +19,18 @@ pub use error::LockfileError as Error;
 use thiserror::Error;
 
 use crate::graphs::LockfilePackageGraph;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceConfig {
+  pub deps: Option<BTreeSet<String>>,
+  pub package_json_deps: Option<BTreeSet<String>>,
+  pub members: BTreeMap<String, BTreeSet<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMemberConfig {
+  pub deps: BTreeSet<String>,
+}
 
 pub struct NpmPackageLockfileInfo {
   pub display_id: String,
@@ -114,9 +124,11 @@ pub struct PackagesContent {
 
   /// Mapping between resolved jsr specifiers and their associated info, eg.
   /// {
-  ///   "@std/fs@1.0.0": {
+  ///   "@oak/oak@12.6.3": {
   ///     "dependencies": [
-  ///       "@std/fs@^1.0",
+  ///       "jsr:@std/bytes@0.210",
+  ///       // ...etc...
+  ///       "npm:path-to-regexpr@6.2.1"
   ///     ]
   ///   }
   /// }
@@ -147,6 +159,42 @@ impl PackagesContent {
   }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+struct LockfilePackageJsonContent {
+  #[serde(default)]
+  deps: BTreeSet<String>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceMemberConfigContent {
+  #[serde(default)]
+  deps: BTreeSet<String>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceConfigContent {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
+  deps: Option<BTreeSet<String>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
+  package_json: Option<LockfilePackageJsonContent>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  members: BTreeMap<String, WorkspaceMemberConfigContent>,
+}
+
+impl WorkspaceConfigContent {
+  pub fn is_empty(&self) -> bool {
+    self.deps.is_none()
+      && self.package_json.is_none()
+      && self.members.is_empty()
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
@@ -160,12 +208,9 @@ pub struct LockfileContent {
   pub redirects: BTreeMap<String, String>,
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
   remote: BTreeMap<String, String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
   #[serde(default)]
-  pub import_map: Option<BTreeSet<String>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[serde(default)]
-  pub package_json: Option<BTreeSet<String>>,
+  workspaces: WorkspaceConfigContent,
 }
 
 impl LockfileContent {
@@ -175,8 +220,7 @@ impl LockfileContent {
       packages: Default::default(),
       redirects: Default::default(),
       remote: BTreeMap::new(),
-      import_map: None,
-      package_json: None,
+      workspaces: Default::default(),
     }
   }
 }
@@ -277,15 +321,31 @@ impl Lockfile {
     json_string
   }
 
-  pub fn set_deps(
-    &mut self,
-    package_json_deps: Option<BTreeSet<String>>,
-    import_map_deps: Option<BTreeSet<String>>,
-  ) {
+  pub fn update_workspace_config(&mut self, config: WorkspaceConfig) {
+    let old_deps = self
+      .content
+      .workspaces
+      .package_json
+      .as_ref()
+      .map(|s| s.deps.iter().map(|s| format!("npm:{}", s)))
+      .into_iter()
+      .flatten()
+      .chain(
+        self
+          .content
+          .workspaces
+          .deps
+          .as_ref()
+          .map(|s| s.iter().map(|s| s.to_string()))
+          .into_iter()
+          .flatten(),
+      )
+      .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
-    if let Some(new_package_json_deps) = package_json_deps {
-      match &mut self.content.package_json {
-        Some(current_package_json_deps) => {
+    if let Some(new_package_json_deps) = config.package_json_deps {
+      match &mut self.content.workspaces.package_json {
+        Some(current_package_json) => {
+          let current_package_json_deps = &mut current_package_json.deps;
           if new_package_json_deps != *current_package_json_deps {
             // update self.content.package_json
             let old_package_json_deps = std::mem::replace(
@@ -306,6 +366,11 @@ impl Lockfile {
           }
         }
         None => {
+          self.content.workspaces.package_json =
+            Some(LockfilePackageJsonContent {
+              deps: new_package_json_deps,
+            });
+          self.has_content_changed = true;
           // todo(THIS PR): document how it would be nice to clear out the npm deps in this scenario
         }
       }
@@ -314,8 +379,8 @@ impl Lockfile {
       // be running a one-off script without a package.json
     }
 
-    if let Some(new_import_map_deps) = import_map_deps {
-      match &mut self.content.import_map {
+    if let Some(new_import_map_deps) = config.deps {
+      match &mut self.content.workspaces.deps {
         Some(current_import_map_deps) => {
           if new_import_map_deps != *current_import_map_deps {
             let old_import_map_deps =
@@ -334,20 +399,59 @@ impl Lockfile {
         }
         None => {
           // todo(THIS PR): document how it would be nice to clear out the npm deps in this scenario too
-          self.content.import_map = Some(new_import_map_deps);
+          self.content.workspaces.deps = Some(new_import_map_deps);
           // clear out all jsr related specifiers when adding an import map
           self.content.packages.clear_jsr();
           self.has_content_changed = true;
         }
       }
-    } else {
-      // don't clear the import map field because someone might
-      // be running a one-off script without an import map
+    }
+
+    if let Some(import_map_deps) = &self.content.workspaces.deps {
+      removed_deps.retain(|dep| !import_map_deps.contains(dep));
+    }
+
+    // now go through the workspaces
+    for (member_name, new_import_map_deps) in config.members {
+      match &mut self.content.workspaces.members.get_mut(&member_name) {
+        Some(member) => {
+          let current_import_map_deps = &mut member.deps;
+          if new_import_map_deps != *current_import_map_deps {
+            let old_import_map_deps =
+              std::mem::replace(current_import_map_deps, new_import_map_deps);
+            let new_import_map_deps = current_import_map_deps;
+
+            // figure out the removed import map deps
+            removed_deps.extend(
+              old_import_map_deps
+                .into_iter()
+                .filter(|c| !new_import_map_deps.contains(c)),
+            );
+
+            self.has_content_changed = true;
+          }
+        }
+        None => {
+          self.content.workspaces.members.insert(
+            member_name,
+            WorkspaceMemberConfigContent {
+              deps: new_import_map_deps,
+            },
+          );
+          self.has_content_changed = true;
+        }
+      }
+    }
+
+    for member in self.content.workspaces.members.values() {
+      removed_deps.retain(|dep| !member.deps.contains(dep));
     }
 
     if !removed_deps.is_empty() {
-      let mut graph =
-        LockfilePackageGraph::from_lockfile(&self.content.packages);
+      let mut graph = LockfilePackageGraph::from_lockfile(
+        &self.content.packages,
+        old_deps.iter().map(|dep| dep.as_str()),
+      );
       graph.remove_root_packages(removed_deps.into_iter());
 
       // clear out the packages
@@ -356,6 +460,7 @@ impl Lockfile {
       self.content.packages.jsr.clear();
 
       // now populate the graph back into the packages
+      graph.clear_remotes_for_removed_jsr_packages(&mut self.content.remote);
       graph.populate_packages(&mut self.content.packages);
     }
   }
@@ -504,6 +609,10 @@ impl Lockfile {
   }
 
   pub fn insert_redirect(&mut self, from: String, to: String) {
+    if from.starts_with("jsr:") {
+      return;
+    }
+
     let maybe_prev = self.content.redirects.get(&from);
 
     if maybe_prev.is_none() || maybe_prev != Some(&to) {
