@@ -20,8 +20,7 @@ mod transforms;
 pub use error::LockfileError as Error;
 use thiserror::Error;
 
-use crate::graphs::LockfileJsrGraph;
-use crate::graphs::LockfileNpmGraph;
+use crate::graphs::LockfilePackageGraph;
 
 pub struct NpmPackageLockfileInfo {
   pub display_id: String,
@@ -278,10 +277,12 @@ impl Lockfile {
     json_string
   }
 
-  pub fn set_package_json_deps(
+  pub fn set_deps(
     &mut self,
     package_json_deps: Option<BTreeSet<String>>,
+    import_map_deps: Option<BTreeSet<String>>,
   ) {
+    let mut removed_deps = HashSet::new();
     if let Some(new_package_json_deps) = package_json_deps {
       match &mut self.content.package_json {
         Some(current_package_json_deps) => {
@@ -294,18 +295,14 @@ impl Lockfile {
             let new_package_json_deps = current_package_json_deps;
 
             // figure out the removed package.json deps
-            let removed_package_json_deps = old_package_json_deps
-              .iter()
-              .filter(|c| !new_package_json_deps.contains(*c))
-              .map(|s| s.as_str())
-              .collect::<Vec<_>>();
-            if !removed_package_json_deps.is_empty() {
-              // there exists some, so create a graph and remove them from the lockfile
-              self.remove_npm_deps(removed_package_json_deps.into_iter());
-            }
+            removed_deps.extend(
+              old_package_json_deps
+                .iter()
+                .filter(|c| !new_package_json_deps.contains(*c))
+                .map(|s| format!("npm:{}", s)),
+            );
 
             self.has_content_changed = true;
-            eprintln!("RESULT: {}", self.as_json_string());
           }
         }
         None => {
@@ -316,26 +313,7 @@ impl Lockfile {
       // don't clear the package.json field because someone might
       // be running a one-off script without a package.json
     }
-  }
 
-  fn remove_npm_deps<'a>(
-    &mut self,
-    package_reqs: impl Iterator<Item = &'a str>,
-  ) {
-    let mut graph = LockfileNpmGraph::from_lockfile(&self.content.packages);
-
-    graph.remove_root_packages(package_reqs);
-
-    // clear out the npm packages
-    self.content.packages.clear_npm();
-    // now populate the graph back into the packages
-    graph.populate_packages(&mut self.content.packages);
-  }
-
-  pub fn set_import_map_deps(
-    &mut self,
-    import_map_deps: Option<BTreeSet<String>>,
-  ) {
     if let Some(new_import_map_deps) = import_map_deps {
       match &mut self.content.import_map {
         Some(current_import_map_deps) => {
@@ -345,31 +323,13 @@ impl Lockfile {
             let new_import_map_deps = current_import_map_deps;
 
             // figure out the removed import map deps
-            let mut removed_import_map_deps = old_import_map_deps
-              .iter()
-              .filter(|c| !new_import_map_deps.contains(*c))
-              .peekable();
-            if removed_import_map_deps.peek().is_some() {
-              // there exists some, so partition out to jsr and npm packages
-              let mut npm_packages = Vec::new();
-              let mut jsr_packages = Vec::new();
-              for req in removed_import_map_deps {
-                if let Some(req) = req.strip_prefix("jsr:") {
-                  jsr_packages.push(req);
-                } else if let Some(req) = req.strip_prefix("npm:") {
-                  npm_packages.push(req);
-                }
-              }
+            removed_deps.extend(
+              old_import_map_deps
+                .into_iter()
+                .filter(|c| !new_import_map_deps.contains(c)),
+            );
 
-              if !npm_packages.is_empty() {
-                self.remove_npm_deps(npm_packages.into_iter());
-              }
-              if !jsr_packages.is_empty() {
-                self.remove_jsr_deps(jsr_packages.into_iter());
-              }
-
-              self.has_content_changed = true;
-            }
+            self.has_content_changed = true;
           }
         }
         None => {
@@ -384,20 +344,20 @@ impl Lockfile {
       // don't clear the import map field because someone might
       // be running a one-off script without an import map
     }
-  }
 
-  fn remove_jsr_deps<'a>(
-    &mut self,
-    package_reqs: impl Iterator<Item = &'a str>,
-  ) {
-    let mut graph = LockfileJsrGraph::from_lockfile(&self.content.packages);
-    graph.remove_root_packages(package_reqs);
+    if !removed_deps.is_empty() {
+      let mut graph =
+        LockfilePackageGraph::from_lockfile(&self.content.packages);
+      graph.remove_root_packages(removed_deps.into_iter());
 
-    // clear out the jsr packages
-    self.content.packages.clear_jsr();
+      // clear out the packages
+      self.content.packages.specifiers.clear();
+      self.content.packages.npm.clear();
+      self.content.packages.jsr.clear();
 
-    // now populate the graph back into the packages
-    graph.populate_packages(&mut self.content.packages);
+      // now populate the graph back into the packages
+      graph.populate_packages(&mut self.content.packages);
+    }
   }
 
   // Synchronize lock file to disk - noop if --lock-write file is not specified.
