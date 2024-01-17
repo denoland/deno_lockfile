@@ -1,14 +1,15 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 mod error;
+mod graphs;
 
 use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::BTreeSet;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::io::Write;
 use std::path::PathBuf;
 
+use deno_semver::jsr;
 use indexmap::IndexMap;
 use ring::digest;
 use serde::Deserialize;
@@ -17,117 +18,10 @@ use serde::Serialize;
 mod transforms;
 
 pub use error::LockfileError as Error;
+use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct LockfileNpmPackageId(String);
-
-struct LockfileNpmGraphPackage {
-  reference_count: usize,
-  integrity: String,
-  dependencies: BTreeMap<String, LockfileNpmPackageId>,
-}
-
-struct LockfileNpmGraph {
-  pub root_packages: HashMap<String, LockfileNpmPackageId>,
-  pub packages: HashMap<LockfileNpmPackageId, LockfileNpmGraphPackage>,
-}
-
-impl LockfileNpmGraph {
-  pub fn from_lockfile(content: &PackagesContent) -> Self {
-    let mut root_packages =
-      HashMap::<String, LockfileNpmPackageId>::with_capacity(
-        content.specifiers.len(),
-      );
-    // collect the specifiers to version mappings
-    for (key, value) in &content.specifiers {
-      if let Some(key) = key.strip_prefix("npm:") {
-        if let Some(value) = value.strip_prefix("npm:") {
-          root_packages
-            .insert(key.to_string(), LockfileNpmPackageId(value.to_string()));
-        }
-      }
-    }
-
-    let mut packages = HashMap::new();
-    for (id, package) in &content.npm {
-      packages.insert(
-        LockfileNpmPackageId(id.clone()),
-        LockfileNpmGraphPackage {
-          reference_count: 0,
-          integrity: package.integrity.clone(),
-          dependencies: package
-            .dependencies
-            .iter()
-            .map(|(key, dep_id)| {
-              (key.clone(), LockfileNpmPackageId(dep_id.clone()))
-            })
-            .collect(),
-        },
-      );
-    }
-
-    let mut visited = HashSet::new();
-    let mut pending = root_packages.values().cloned().collect::<VecDeque<_>>();
-    while let Some(id) = pending.pop_back() {
-      if let Some(package) = packages.get_mut(&id) {
-        package.reference_count += 1;
-        if visited.insert(id) {
-          for dep_id in package.dependencies.values() {
-            pending.push_back(dep_id.clone());
-          }
-        }
-      }
-    }
-
-    Self {
-      root_packages,
-      packages,
-    }
-  }
-
-  pub fn remove_root_package(&mut self, package_req: &String) {
-    let mut pending = VecDeque::new();
-    if let Some(package_id) = self.root_packages.remove(package_req) {
-      pending.push_back(package_id);
-    }
-
-    while let Some(id) = pending.pop_back() {
-      eprintln!("HANDLING: {}", id.0);
-      if let Some(package) = self.packages.get_mut(&id) {
-        package.reference_count -= 1;
-        if package.reference_count == 0 {
-          for dep_id in package.dependencies.values() {
-            pending.push_back(dep_id.clone());
-          }
-          self.packages.remove(&id);
-        }
-      }
-    }
-  }
-
-  fn populate_packages(self, packages: &mut PackagesContent) {
-    for (req, id) in self.root_packages {
-      eprintln!("ADDING: {:#?}", req);
-      packages
-        .specifiers
-        .insert(format!("npm:{}", req), format!("npm:{}", id.0));
-    }
-    for (id, package) in self.packages {
-      eprintln!("ADDING: {}", id.0);
-      packages.npm.insert(
-        id.0,
-        NpmPackageInfo {
-          integrity: package.integrity.clone(),
-          dependencies: package
-            .dependencies
-            .into_iter()
-            .map(|(name, id)| (name, id.0))
-            .collect(),
-        },
-      );
-    }
-  }
-}
+use crate::graphs::LockfileJsrGraph;
+use crate::graphs::LockfileNpmGraph;
 
 pub struct NpmPackageLockfileInfo {
   pub display_id: String,
@@ -155,16 +49,31 @@ fn gen_checksum(v: &[impl AsRef<[u8]>]) -> String {
   out.join("")
 }
 
-#[derive(Debug)]
-pub struct LockfileError(String);
-
-impl std::fmt::Display for LockfileError {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    f.write_str(&self.0)
-  }
+#[derive(Debug, Error)]
+pub enum LockfileError {
+  #[error(transparent)]
+  IntegrityCheckFailed(#[from] IntegrityCheckFailedError),
 }
 
-impl std::error::Error for LockfileError {}
+#[derive(Debug, Error)]
+#[error("Integrity check failed for npm package: \"{package_display_id}\". Unable to verify that the package
+is the same as when the lockfile was generated.
+
+Actual: {actual}
+Expected: {expected}
+
+This could be caused by:
+* the lock file may be corrupt
+* the source itself may be corrupt
+
+Use \"--lock-write\" flag to regenerate the lockfile at \"{filename}\".",
+)]
+pub struct IntegrityCheckFailedError {
+  pub package_display_id: String,
+  pub actual: String,
+  pub expected: String,
+  pub filename: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
@@ -172,13 +81,19 @@ pub struct NpmPackageInfo {
   pub dependencies: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+pub struct JsrPackageInfo {
+  /// List of package requirements found in the dependency.
+  ///
+  /// This is used to tell when a package can be removed from the lockfile.
+  pub dependencies: BTreeSet<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Hash)]
 pub struct PackagesContent {
   /// Mapping between requests for deno specifiers and resolved packages, eg.
   /// {
-  ///   "deno:path": "deno:@std/path@1.0.0",
-  ///   "deno:ts-morph@11": "npm:ts-morph@11.0.0",
-  ///   "deno:@foo/bar@^2.1": "deno:@foo/bar@2.1.3",
+  ///   "jsr:@foo/bar@^2.1": "jsr:@foo/bar@2.1.3",
   ///   "npm:@ts-morph/common@^11": "npm:@ts-morph/common@11.0.0",
   /// }
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -197,6 +112,18 @@ pub struct PackagesContent {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub npm: BTreeMap<String, NpmPackageInfo>,
+
+  /// Mapping between resolved jsr specifiers and their associated info, eg.
+  /// {
+  ///   "@std/fs@1.0.0": {
+  ///     "dependencies": [
+  ///       "@std/fs@^1.0",
+  ///     ]
+  ///   }
+  /// }
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub jsr: BTreeMap<String, JsrPackageInfo>,
 }
 
 impl PackagesContent {
@@ -204,41 +131,20 @@ impl PackagesContent {
     self.specifiers.is_empty() && self.npm.is_empty()
   }
 
-  pub fn clear_npm(&mut self) {
+  fn clear_npm(&mut self) {
     self.specifiers.retain(|k, v| {
       let has_npm = k.starts_with("npm:") || v.starts_with("npm:");
       !has_npm
     });
     self.npm.clear();
   }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LockfileImportMap {
-  #[serde(skip_serializing_if = "IndexMap::is_empty")]
-  #[serde(default)]
-  pub imports: IndexMap<String, String>,
-  #[serde(skip_serializing_if = "IndexMap::is_empty")]
-  #[serde(default)]
-  pub scopes: IndexMap<String, IndexMap<String, String>>,
-}
-
-// IndexMap doesn't implement Hash, so we need to do this ourselves.
-// Hashing is used in the LSP to tell when the lockfile has changed.
-impl std::hash::Hash for LockfileImportMap {
-  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-    for (key, value) in &self.imports {
-      key.hash(state);
-      value.hash(state);
-    }
-    for (key, scope_map) in &self.scopes {
-      key.hash(state);
-      for (scope_key, scope_value) in scope_map {
-        scope_key.hash(state);
-        scope_value.hash(state);
-      }
-    }
+  fn clear_jsr(&mut self) {
+    self.specifiers.retain(|k, v| {
+      let has_npm = k.starts_with("jsr:") || v.starts_with("jsr:");
+      !has_npm
+    });
+    self.jsr.clear();
   }
 }
 
@@ -257,10 +163,10 @@ pub struct LockfileContent {
   remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[serde(default)]
-  pub import_map: Option<LockfileImportMap>,
+  pub import_map: Option<BTreeSet<String>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[serde(default)]
-  pub package_json: Option<Vec<String>>,
+  pub package_json: Option<BTreeSet<String>>,
 }
 
 impl LockfileContent {
@@ -374,37 +280,36 @@ impl Lockfile {
 
   pub fn set_package_json_deps(
     &mut self,
-    package_json_deps: Option<Vec<String>>,
+    package_json_deps: Option<BTreeSet<String>>,
   ) {
     if let Some(new_package_json_deps) = package_json_deps {
       match &mut self.content.package_json {
-        Some(current_package_json) => {
-          if new_package_json_deps != *current_package_json {
-            let current_package_json =
-              std::mem::replace(current_package_json, new_package_json_deps);
-            let mut graph =
-              LockfileNpmGraph::from_lockfile(&self.content.packages);
-            for package_req in &current_package_json {
-              eprintln!("LOOKING AT: {}", package_req);
-              graph.remove_root_package(&package_req);
-            }
+        Some(current_package_json_deps) => {
+          if new_package_json_deps != *current_package_json_deps {
+            // update self.content.package_json
+            let old_package_json_deps = std::mem::replace(
+              current_package_json_deps,
+              new_package_json_deps,
+            );
+            let new_package_json_deps = current_package_json_deps;
 
-            // clear out the npm packages
-            eprintln!("CLEARING OUT");
-            self.content.packages.clear_npm();
-            // now populate the graph back into the packages
-            eprintln!("POPULATING");
-            graph.populate_packages(&mut self.content.packages);
+            // figure out the removed package.json deps
+            let removed_package_json_deps = old_package_json_deps
+              .iter()
+              .filter(|c| !new_package_json_deps.contains(*c))
+              .map(|s| s.as_str())
+              .collect::<Vec<_>>();
+            if !removed_package_json_deps.is_empty() {
+              // there exists some, so create a graph and remove them from the lockfile
+              self.remove_npm_deps(removed_package_json_deps.into_iter());
+            }
 
             self.has_content_changed = true;
             eprintln!("RESULT: {}", self.as_json_string());
           }
         }
         None => {
-          self.content.package_json = Some(new_package_json_deps);
-          // clear out all npm related specifiers when adding a package.json
-          self.content.packages.clear_npm();
-          self.has_content_changed = true;
+          // todo(THIS PR): document how it would be nice to clear out the npm deps in this scenario
         }
       }
     } else {
@@ -413,13 +318,93 @@ impl Lockfile {
     }
   }
 
+  fn remove_npm_deps<'a>(
+    &mut self,
+    package_reqs: impl Iterator<Item = &'a str>,
+  ) {
+    let mut graph = LockfileNpmGraph::from_lockfile(&self.content.packages);
+
+    graph.remove_root_packages(package_reqs);
+
+    // clear out the npm packages
+    self.content.packages.clear_npm();
+    // now populate the graph back into the packages
+    graph.populate_packages(&mut self.content.packages);
+  }
+
+  pub fn set_import_map_deps(
+    &mut self,
+    import_map_deps: Option<BTreeSet<String>>,
+  ) {
+    if let Some(new_import_map_deps) = import_map_deps {
+      match &mut self.content.import_map {
+        Some(current_import_map_deps) => {
+          if new_import_map_deps != *current_import_map_deps {
+            let old_import_map_deps =
+              std::mem::replace(current_import_map_deps, new_import_map_deps);
+            let new_import_map_deps = current_import_map_deps;
+
+            // figure out the removed import map deps
+            let mut removed_import_map_deps = old_import_map_deps
+              .iter()
+              .filter(|c| !new_import_map_deps.contains(*c))
+              .peekable();
+            if removed_import_map_deps.peek().is_some() {
+              // there exists some, so partition out to jsr and npm packages
+              let mut npm_packages = Vec::new();
+              let mut jsr_packages = Vec::new();
+              for req in removed_import_map_deps {
+                if let Some(req) = req.strip_prefix("jsr:") {
+                  jsr_packages.push(req);
+                } else if let Some(req) = req.strip_prefix("npm:") {
+                  npm_packages.push(req);
+                }
+              }
+
+              if !npm_packages.is_empty() {
+                self.remove_npm_deps(npm_packages.into_iter());
+              }
+              if !jsr_packages.is_empty() {
+                self.remove_jsr_deps(jsr_packages.into_iter());
+              }
+
+              self.has_content_changed = true;
+            }
+          }
+        }
+        None => {
+          // todo(THIS PR): document how it would be nice to clear out the npm deps in this scenario too
+          self.content.import_map = Some(new_import_map_deps);
+          // clear out all jsr related specifiers when adding an import map
+          self.content.packages.clear_jsr();
+          self.has_content_changed = true;
+        }
+      }
+    } else {
+      // don't clear the import map field because someone might
+      // be running a one-off script without an import map
+    }
+  }
+
+  fn remove_jsr_deps<'a>(
+    &mut self,
+    package_reqs: impl Iterator<Item = &'a str>,
+  ) {
+    let mut graph = LockfileJsrGraph::from_lockfile(&self.content.packages);
+    graph.remove_root_packages(package_reqs);
+
+    // clear out the jsr packages
+    self.content.packages.clear_jsr();
+
+    // now populate the graph back into the packages
+    graph.populate_packages(&mut self.content.packages);
+  }
+
   // Synchronize lock file to disk - noop if --lock-write file is not specified.
   pub fn write(&self) -> Result<(), Error> {
     if !self.has_content_changed && !self.overwrite {
       return Ok(());
     }
-    eprintln!("WRITING");
-    eprintln!("RESULT: {}", self.as_json_string());
 
     let mut f = std::fs::OpenOptions::new()
       .write(true)
@@ -487,18 +472,17 @@ impl Lockfile {
     if let Some(package_info) =
       self.content.packages.npm.get(&package.serialized_id)
     {
-      if package_info.integrity.as_str() != package.integrity {
-        return Err(LockfileError(format!(
-            "Integrity check failed for npm package: \"{}\". Unable to verify that the package
-is the same as when the lockfile was generated.
-
-This could be caused by:
-  * the lock file may be corrupt
-  * the source itself may be corrupt
-
-Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
-            package.display_id, self.filename.display()
-          )));
+      let actual = package_info.integrity.as_str();
+      let expected = &package.integrity;
+      if actual != expected {
+        return Err(LockfileError::IntegrityCheckFailed(
+          IntegrityCheckFailedError {
+            package_display_id: package.display_id,
+            filename: self.filename.display().to_string(),
+            actual: actual.to_string(),
+            expected: expected.to_string(),
+          },
+        ));
       }
     } else {
       self.insert_npm_package(package);
@@ -542,6 +526,20 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
         .packages
         .specifiers
         .insert(serialized_package_req, serialized_package_id);
+    }
+  }
+
+  pub fn insert_package_deps(
+    &mut self,
+    name: String,
+    deps: impl Iterator<Item = String>,
+  ) {
+    let package = self.content.packages.jsr.entry(name).or_default();
+    let start_count = package.dependencies.len();
+    package.dependencies.extend(deps);
+    let end_count = package.dependencies.len();
+    if start_count != end_count {
+      self.has_content_changed = true;
     }
   }
 
