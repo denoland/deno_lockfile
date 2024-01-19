@@ -30,13 +30,17 @@ pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
+  #[serde(flatten)]
   pub root: WorkspaceMemberConfig,
+  #[serde(default)]
   pub members: BTreeMap<String, WorkspaceMemberConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceMemberConfig {
+  #[serde(default)]
   pub deps: Option<BTreeSet<String>>,
+  #[serde(default)]
   pub package_json_deps: Option<BTreeSet<String>>,
 }
 

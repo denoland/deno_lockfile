@@ -2,11 +2,15 @@ use std::iter::Peekable;
 use std::path::Path;
 use std::path::PathBuf;
 
+pub struct ChangeAndOutput {
+  pub change: SpecFile,
+  pub output: SpecFile,
+}
+
 pub struct ConfigChangeSpec {
   pub path: PathBuf,
   pub original_text: SpecFile,
-  pub change: SpecFile,
-  pub output: SpecFile,
+  pub change_and_outputs: Vec<ChangeAndOutput>,
 }
 
 impl ConfigChangeSpec {
@@ -39,31 +43,32 @@ impl ConfigChangeSpec {
       title: lines.next().unwrap().to_string(),
       text: take_next(&mut lines),
     };
-    let change = SpecFile {
-      title: lines.next().unwrap().to_string(),
-      text: take_next(&mut lines),
-    };
-    let output = SpecFile {
-      title: lines.next().unwrap().to_string(),
-      text: take_next(&mut lines),
-    };
-    assert!(lines.next().is_none());
+    let mut change_and_outputs = Vec::new();
+    while lines.peek().is_some() {
+      let change = SpecFile {
+        title: lines.next().unwrap().to_string(),
+        text: take_next(&mut lines),
+      };
+      let output = SpecFile {
+        title: lines.next().unwrap().to_string(),
+        text: take_next(&mut lines),
+      };
+      change_and_outputs.push(ChangeAndOutput { change, output });
+    }
     Self {
       path,
       original_text,
-      change,
-      output,
+      change_and_outputs,
     }
   }
 
   pub fn emit(&self) -> String {
     let mut text = String::new();
     text.push_str(&self.original_text.emit());
-    text.push_str("\n");
-    text.push_str(&self.change.emit());
-    text.push_str("\n");
-    text.push_str(&self.output.emit());
-    text.push_str("\n");
+    for change_and_output in &self.change_and_outputs {
+      text.push_str(&change_and_output.change.emit());
+      text.push_str(&change_and_output.output.emit());
+    }
     text
   }
 }
