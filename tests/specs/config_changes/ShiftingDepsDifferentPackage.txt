@@ -49,9 +49,6 @@
         "dependencies": [
           "jsr:@dsherret/which@0.0.1"
         ]
-      },
-      "@dsherret/which@0.0.1": {
-        "dependencies": []
       }
     }
   },
@@ -95,9 +92,6 @@
         "dependencies": [
           "jsr:@dsherret/which@0.0.1"
         ]
-      },
-      "@dsherret/which@0.0.1": {
-        "dependencies": []
       }
     }
   },

@@ -40,17 +40,32 @@ impl ConfigChangeSpec {
 
     let mut lines = text.split('\n').peekable();
     let original_text = SpecFile {
-      title: lines.next().unwrap().to_string(),
+      title: lines
+        .next()
+        .unwrap()
+        .strip_prefix("# ")
+        .unwrap()
+        .to_string(),
       text: take_next(&mut lines),
     };
     let mut change_and_outputs = Vec::new();
     while lines.peek().is_some() {
       let change = SpecFile {
-        title: lines.next().unwrap().to_string(),
+        title: lines
+          .next()
+          .unwrap()
+          .strip_prefix("# ")
+          .unwrap()
+          .to_string(),
         text: take_next(&mut lines),
       };
       let output = SpecFile {
-        title: lines.next().unwrap().to_string(),
+        title: lines
+          .next()
+          .unwrap()
+          .strip_prefix("# ")
+          .unwrap()
+          .to_string(),
         text: take_next(&mut lines),
       };
       change_and_outputs.push(ChangeAndOutput { change, output });
