@@ -28,13 +28,13 @@ pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
   pub nv_to_jsr_url: F,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: BTreeMap<String, WorkspaceMemberConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceMemberConfig {
   pub deps: Option<BTreeSet<String>>,
   pub package_json_deps: Option<BTreeSet<String>>,
@@ -187,7 +187,7 @@ impl WorkspaceMemberConfigContent {
       .as_ref()
       .map(|s| s.deps.iter())
       .into_iter()
-      .chain(self.deps.as_ref().map(|s| s.iter()).into_iter())
+      .chain(self.deps.as_ref().map(|s| s.iter()))
       .flatten()
   }
 }
@@ -964,14 +964,14 @@ mod tests {
   }
 
   #[test]
-  fn test_insert_deno() {
+  fn test_insert_jsr() {
     let mut lockfile = Lockfile::with_lockfile_content(
       PathBuf::from("/foo/deno.lock"),
       r#"{
   "version": "3",
   "packages": {
     "specifiers": {
-      "deno:path": "deno:@std/path@0.75.0"
+      "jsr:path": "jsr:@std/path@0.75.0"
     }
   },
   "remote": {}
@@ -980,18 +980,18 @@ mod tests {
     )
     .unwrap();
     lockfile.insert_package_specifier(
-      "deno:path".to_string(),
-      "deno:@std/path@0.75.0".to_string(),
+      "jsr:path".to_string(),
+      "jsr:@std/path@0.75.0".to_string(),
     );
     assert!(!lockfile.has_content_changed);
     lockfile.insert_package_specifier(
-      "deno:path".to_string(),
-      "deno:@std/path@0.75.1".to_string(),
+      "jsr:path".to_string(),
+      "jsr:@std/path@0.75.1".to_string(),
     );
     assert!(lockfile.has_content_changed);
     lockfile.insert_package_specifier(
-      "deno:@foo/bar@^2".to_string(),
-      "deno:@foo/bar@2.1.2".to_string(),
+      "jsr:@foo/bar@^2".to_string(),
+      "jsr:@foo/bar@2.1.2".to_string(),
     );
     assert_eq!(
       lockfile.as_json_string(),
@@ -999,8 +999,8 @@ mod tests {
   "version": "3",
   "packages": {
     "specifiers": {
-      "deno:@foo/bar@^2": "deno:@foo/bar@2.1.2",
-      "deno:path": "deno:@std/path@0.75.1"
+      "jsr:@foo/bar@^2": "jsr:@foo/bar@2.1.2",
+      "jsr:path": "jsr:@std/path@0.75.1"
     }
   },
   "remote": {}

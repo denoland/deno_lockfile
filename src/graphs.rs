@@ -25,7 +25,7 @@ impl LockfileNpmPackageId {
   pub fn parts(&self) -> impl Iterator<Item = &str> {
     let package_id = &self.0;
     let package_id = package_id.strip_prefix("npm:").unwrap_or(package_id);
-    package_id.split("_").filter(|s| !s.is_empty())
+    package_id.split('_').filter(|s| !s.is_empty())
   }
 }
 
@@ -48,6 +48,8 @@ struct LockfileJsrGraphPackage {
   dependencies: BTreeSet<LockfilePkgReq>,
 }
 
+/// Graph used to analyze a lockfile to determine which packages
+/// and remotes can be removed based on config file changes.
 pub struct LockfilePackageGraph {
   root_packages: HashMap<LockfilePkgReq, LockfilePkgId>,
   packages: HashMap<LockfilePkgId, LockfileGraphPackage>,
@@ -113,6 +115,7 @@ impl LockfilePackageGraph {
     let mut pending = old_config_file_packages
       .filter_map(|value| {
         content.specifiers.get(value).and_then(|value| {
+          #[allow(clippy::manual_map)] // not easier to read
           if let Some(value) = value.strip_prefix("npm:") {
             Some(LockfilePkgId::Npm(LockfileNpmPackageId(value.to_string())))
           } else if let Some(value) = value.strip_prefix("jsr:") {
@@ -155,14 +158,13 @@ impl LockfilePackageGraph {
     }
   }
 
-  pub fn remove_root_packages<'a>(
+  pub fn remove_root_packages(
     &mut self,
     package_reqs: impl Iterator<Item = String>,
   ) {
     let mut pending = VecDeque::new();
-    let mut pending_reqs = package_reqs
-      .map(|req| LockfilePkgReq(req.to_string()))
-      .collect::<VecDeque<_>>();
+    let mut pending_reqs =
+      package_reqs.map(LockfilePkgReq).collect::<VecDeque<_>>();
     let mut visited_root_packages =
       HashSet::with_capacity(self.root_packages.len());
     visited_root_packages.extend(pending_reqs.iter().cloned());
@@ -173,7 +175,8 @@ impl LockfilePackageGraph {
             for (req, id) in &self.root_packages {
               if let LockfilePkgId::Npm(id) = &id {
                 if id.parts().skip(1).any(|part| part == first_part) {
-                  if visited_root_packages.insert(req.clone()) {
+                  let has_visited = visited_root_packages.insert(req.clone());
+                  if has_visited {
                     pending_reqs.push_back(req.clone());
                   }
                 }
@@ -280,7 +283,7 @@ impl LockfilePackageGraph {
     for nv in &self.removed_jsr_packages {
       if let Some(url) = nv_to_jsr_url(&nv.0) {
         debug_assert!(
-          url.ends_with("/"),
+          url.ends_with('/'),
           "JSR URL should end with slash: {}",
           url
         );
