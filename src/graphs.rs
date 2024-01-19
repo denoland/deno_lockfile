@@ -98,9 +98,7 @@ impl LockfilePackageGraph {
             .map(|req| LockfilePkgReq(req.clone()))
             .collect();
         }
-        LockfileGraphPackage::Npm(_) => {
-          debug_assert!(false, "Unexpected npm package: {:?}", nv)
-        }
+        LockfileGraphPackage::Npm(_) => unreachable!(),
       }
     }
     for (id, package) in &content.npm {
@@ -247,22 +245,25 @@ impl LockfilePackageGraph {
         },
       );
     }
+
     for (id, package) in self.packages {
       match package {
         LockfileGraphPackage::Jsr(package) => {
-          packages.jsr.insert(
-            match id {
-              LockfilePkgId::Jsr(nv) => nv.0,
-              LockfilePkgId::Npm(_) => unreachable!(),
-            },
-            crate::JsrPackageInfo {
-              dependencies: package
-                .dependencies
-                .into_iter()
-                .map(|req| req.0)
-                .collect(),
-            },
-          );
+          if !package.dependencies.is_empty() {
+            packages.jsr.insert(
+              match id {
+                LockfilePkgId::Jsr(nv) => nv.0,
+                LockfilePkgId::Npm(_) => unreachable!(),
+              },
+              crate::JsrPackageInfo {
+                dependencies: package
+                  .dependencies
+                  .into_iter()
+                  .map(|req| req.0)
+                  .collect(),
+              },
+            );
+          }
         }
         LockfileGraphPackage::Npm(package) => {
           packages.npm.insert(

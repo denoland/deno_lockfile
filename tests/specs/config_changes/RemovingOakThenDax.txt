@@ -392,7 +392,9 @@
       "jsr:@std/path@0.210.0": "jsr:@std/path@0.210.0",
       "jsr:@std/path@^0.210.0": "jsr:@std/path@0.210.0",
       "jsr:@std/streams@0.210": "jsr:@std/streams@0.210.0",
-      "jsr:@std/streams@0.210.0": "jsr:@std/streams@0.210.0"
+      "jsr:@std/streams@0.210.0": "jsr:@std/streams@0.210.0",
+      "jsr:@zome_unreferenced/package": "jsr:@zome_unreferenced/package@0.1.0",
+      "jsr:@zome_unreferenced/package_b": "jsr:@zome_unreferenced/package_b@0.1.0"
     },
     "jsr": {
       "@dsherret/dax@0.0.1": {
@@ -427,6 +429,11 @@
           "jsr:@std/assert@^0.210.0",
           "jsr:@std/bytes@^0.210.0",
           "jsr:@std/io@^0.210.0"
+        ]
+      },
+      "jsr:@zome_unreferenced/package@0.1.0": {
+        "dependencies": [
+          "jsr:@zome_unreferenced/package_b"
         ]
       }
     }
@@ -640,6 +647,19 @@
 # output
 {
   "version": "3",
+  "packages": {
+    "specifiers": {
+      "jsr:@zome_unreferenced/package": "jsr:@zome_unreferenced/package@0.1.0",
+      "jsr:@zome_unreferenced/package_b": "jsr:@zome_unreferenced/package_b@0.1.0"
+    },
+    "jsr": {
+      "jsr:@zome_unreferenced/package@0.1.0": {
+        "dependencies": [
+          "jsr:@zome_unreferenced/package_b"
+        ]
+      }
+    }
+  },
   "remote": {
     "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
   },

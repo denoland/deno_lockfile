@@ -95,7 +95,7 @@ pub struct SpecFile {
 
 impl SpecFile {
   pub fn emit(&self) -> String {
-    format!("# {}\n{}\n", self.title, self.text)
+    format!("# {}\n{}", self.title, self.text)
   }
 }
 
