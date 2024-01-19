@@ -67,6 +67,7 @@ impl LockfilePackageGraph {
         content.specifiers.len(),
       );
     // collect the specifiers to version mappings
+    let mut packages = HashMap::new();
     for (key, value) in &content.specifiers {
       if let Some(value) = value.strip_prefix("npm:") {
         root_packages.insert(
@@ -76,10 +77,13 @@ impl LockfilePackageGraph {
       } else if let Some(value) = value.strip_prefix("jsr:") {
         let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string()));
         root_packages.insert(LockfilePkgReq(key.to_string()), nv.clone());
+        packages.insert(
+          nv,
+          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default()),
+        );
       }
     }
 
-    let mut packages = HashMap::new();
     for (nv, content_package) in &content.jsr {
       let new_deps = &content_package.dependencies;
       let package = packages
