@@ -38,14 +38,14 @@ enum LockfileGraphPackage {
 }
 
 struct LockfileNpmGraphPackage {
-  reference_count: usize,
+  root_ids: HashSet<LockfilePkgId>,
   integrity: String,
   dependencies: BTreeMap<String, LockfileNpmPackageId>,
 }
 
 #[derive(Default)]
 struct LockfileJsrGraphPackage {
-  reference_count: usize,
+  root_ids: HashSet<LockfilePkgId>,
   dependencies: BTreeSet<LockfilePkgReq>,
 }
 
@@ -105,7 +105,7 @@ impl LockfilePackageGraph {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
-          reference_count: 0,
+          root_ids: Default::default(),
           integrity: package.integrity.clone(),
           dependencies: package
             .dependencies
@@ -118,8 +118,8 @@ impl LockfilePackageGraph {
       );
     }
 
-    let mut visited = HashSet::new();
-    let mut pending = old_config_file_packages
+    // trace every root identifier through the graph finding all the corresponding packages
+    let mut root_ids = old_config_file_packages
       .filter_map(|value| {
         content.specifiers.get(value).and_then(|value| {
           #[allow(clippy::manual_map)] // not easier to read
@@ -132,25 +132,27 @@ impl LockfilePackageGraph {
           }
         })
       })
-      .collect::<VecDeque<_>>();
-    while let Some(id) = pending.pop_back() {
-      if let Some(package) = packages.get_mut(&id) {
-        match package {
-          LockfileGraphPackage::Jsr(package) => {
-            package.reference_count += 1;
-            if visited.insert(id) {
-              for req in &package.dependencies {
-                if let Some(nv) = root_packages.get(req) {
-                  pending.push_back(nv.clone());
+      .collect::<Vec<_>>();
+
+    while let Some(root_id) = root_ids.pop() {
+      let mut pending = VecDeque::from([root_id.clone()]);
+      while let Some(id) = pending.pop_back() {
+        if let Some(package) = packages.get_mut(&id) {
+          match package {
+            LockfileGraphPackage::Jsr(package) => {
+              if package.root_ids.insert(root_id.clone()) {
+                for req in &package.dependencies {
+                  if let Some(nv) = root_packages.get(req) {
+                    pending.push_back(nv.clone());
+                  }
                 }
               }
             }
-          }
-          LockfileGraphPackage::Npm(package) => {
-            package.reference_count += 1;
-            if visited.insert(id) {
-              for dep_id in package.dependencies.values() {
-                pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
+            LockfileGraphPackage::Npm(package) => {
+              if package.root_ids.insert(root_id.clone()) {
+                for dep_id in package.dependencies.values() {
+                  pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
+                }
               }
             }
           }
@@ -169,7 +171,7 @@ impl LockfilePackageGraph {
     &mut self,
     package_reqs: impl Iterator<Item = String>,
   ) {
-    let mut pending = VecDeque::new();
+    let mut root_ids = Vec::new();
     let mut pending_reqs =
       package_reqs.map(LockfilePkgReq).collect::<VecDeque<_>>();
     let mut visited_root_packages =
@@ -191,35 +193,36 @@ impl LockfilePackageGraph {
             }
           }
         }
-        pending.push_back(id.clone());
+        root_ids.push(id.clone());
       }
     }
 
-    while let Some(id) = pending.pop_back() {
-      if let Some(package) = self.packages.get_mut(&id) {
-        match package {
-          LockfileGraphPackage::Jsr(package) => {
-            if package.reference_count > 1 {
-              package.reference_count -= 1;
-            } else {
-              debug_assert_eq!(package.reference_count, 1, "Package: {:?}", id);
-              for req in &package.dependencies {
-                if let Some(id) = self.root_packages.get(req) {
-                  pending.push_back(id.clone());
+    while let Some(root_id) = root_ids.pop() {
+      let mut pending = VecDeque::from([root_id.clone()]);
+      while let Some(id) = pending.pop_back() {
+        if let Some(package) = self.packages.get_mut(&id) {
+          match package {
+            LockfileGraphPackage::Jsr(package) => {
+              if package.root_ids.remove(&root_id) {
+                for req in &package.dependencies {
+                  if let Some(id) = self.root_packages.get(req) {
+                    pending.push_back(id.clone());
+                  }
+                }
+                if package.root_ids.is_empty() {
+                  self.remove_package(id);
                 }
               }
-              self.remove_package(id);
             }
-          }
-          LockfileGraphPackage::Npm(package) => {
-            if package.reference_count > 1 {
-              package.reference_count -= 1;
-            } else {
-              debug_assert_eq!(package.reference_count, 1, "Package: {:?}", id);
-              for dep_id in package.dependencies.values() {
-                pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
+            LockfileGraphPackage::Npm(package) => {
+              if package.root_ids.remove(&root_id) {
+                for dep_id in package.dependencies.values() {
+                  pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
+                }
+                if package.root_ids.is_empty() {
+                  self.remove_package(id);
+                }
               }
-              self.remove_package(id);
             }
           }
         }

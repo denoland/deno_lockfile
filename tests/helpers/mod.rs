@@ -15,7 +15,20 @@ pub struct ConfigChangeSpec {
 
 impl ConfigChangeSpec {
   pub fn collect_in_dir(dir_path: &Path) -> Vec<ConfigChangeSpec> {
-    collect_files_in_dir_recursive(dir_path)
+    let files = collect_files_in_dir_recursive(dir_path);
+    let only_files = files
+      .iter()
+      .filter(|file| {
+        file.path.to_string_lossy().to_lowercase().contains("_only")
+      })
+      .cloned()
+      .collect::<Vec<_>>();
+    let files = if only_files.is_empty() {
+      files
+    } else {
+      only_files
+    };
+    files
       .into_iter()
       .map(|file| ConfigChangeSpec::parse(file.path.clone(), &file.text))
       .collect()
@@ -96,6 +109,7 @@ impl SpecFile {
   }
 }
 
+#[derive(Clone)]
 struct CollectedFile {
   pub path: PathBuf,
   pub text: String,
