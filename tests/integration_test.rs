@@ -41,8 +41,9 @@ fn config_changes() {
         assert_eq!(
           actual_text.trim(),
           expected_text.trim(),
-          "Failed for: {}",
-          spec.path.display()
+          "Failed for: {} - {}",
+          spec.path.display(),
+          change_and_output.change.title,
         );
       }
     }

@@ -43,6 +43,7 @@ struct LockfileNpmGraphPackage {
   dependencies: BTreeMap<String, LockfileNpmPackageId>,
 }
 
+#[derive(Default)]
 struct LockfileJsrGraphPackage {
   reference_count: usize,
   dependencies: BTreeSet<LockfilePkgReq>,
@@ -73,26 +74,30 @@ impl LockfilePackageGraph {
           LockfilePkgId::Npm(LockfileNpmPackageId(value.to_string())),
         );
       } else if let Some(value) = value.strip_prefix("jsr:") {
-        root_packages.insert(
-          LockfilePkgReq(key.to_string()),
-          LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string())),
-        );
+        let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string()));
+        root_packages.insert(LockfilePkgReq(key.to_string()), nv.clone());
       }
     }
 
     let mut packages = HashMap::new();
-    for (nv, package) in &content.jsr {
-      packages.insert(
-        LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())),
-        LockfileGraphPackage::Jsr(LockfileJsrGraphPackage {
-          reference_count: 0,
-          dependencies: package
-            .dependencies
+    for (nv, content_package) in &content.jsr {
+      let new_deps = &content_package.dependencies;
+      let package = packages
+        .entry(LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())))
+        .or_insert_with(|| {
+          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default())
+        });
+      match package {
+        LockfileGraphPackage::Jsr(package) => {
+          package.dependencies = new_deps
             .iter()
             .map(|req| LockfilePkgReq(req.clone()))
-            .collect(),
-        }),
-      );
+            .collect();
+        }
+        LockfileGraphPackage::Npm(_) => {
+          debug_assert!(false, "Unexpected npm package: {:?}", nv)
+        }
+      }
     }
     for (id, package) in &content.npm {
       packages.insert(

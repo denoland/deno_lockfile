@@ -11,9 +11,6 @@
         "dependencies": [
           "jsr:@dsherret/which@0.0.1"
         ]
-      },
-      "@dsherret/which@0.0.1": {
-        "dependencies": []
       }
     }
   },
@@ -21,7 +18,7 @@
     "https://jsr.io/@dsherret/dax/0.0.1/mod.ts": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
   },
   "workspaces": {
-    "deps": [
+    "dependencies": [
       "jsr:@dsherret/dax"
     ]
   }
@@ -29,10 +26,10 @@
 
 # move to workspace member
 {
-  "deps": [],
+  "dependencies": [],
   "members": {
     "package_a": {
-      "deps": [
+      "dependencies": [
         "jsr:@dsherret/dax"
       ]
     }
@@ -62,10 +59,10 @@
     "https://jsr.io/@dsherret/dax/0.0.1/mod.ts": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
   },
   "workspaces": {
-    "deps": [],
+    "dependencies": [],
     "members": {
       "package_a": {
-        "deps": [
+        "dependencies": [
           "jsr:@dsherret/dax"
         ]
       }
@@ -75,10 +72,10 @@
 
 # change to be in a different package
 {
-  "deps": [],
+  "dependencies": [],
   "members": {
     "package_b": {
-      "deps": [
+      "dependencies": [
         "jsr:@dsherret/dax"
       ]
     }
@@ -108,10 +105,10 @@
     "https://jsr.io/@dsherret/dax/0.0.1/mod.ts": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
   },
   "workspaces": {
-    "deps": [],
+    "dependencies": [],
     "members": {
       "package_b": {
-        "deps": [
+        "dependencies": [
           "jsr:@dsherret/dax"
         ]
       }

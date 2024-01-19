@@ -26,6 +26,8 @@
       "jsr:@std/path@^0.210.0": "jsr:@std/path@0.210.0",
       "jsr:@std/streams@0.210": "jsr:@std/streams@0.210.0",
       "jsr:@std/streams@0.210.0": "jsr:@std/streams@0.210.0",
+      "jsr:@zome_unreferenced/package": "jsr:@zome_unreferenced/package@0.1.0",
+      "jsr:@zome_unreferenced/package_b": "jsr:@zome_unreferenced/package_b@0.1.0",
       "npm:path-to-regexp@6.2.1": "npm:path-to-regexp@6.2.1"
     },
     "npm": {
@@ -44,9 +46,6 @@
           "jsr:@std/path@0.210.0",
           "jsr:@std/streams@0.210.0"
         ]
-      },
-      "@dsherret/which@0.0.1": {
-        "dependencies": []
       },
       "@oak/commons@0.4.0": {
         "dependencies": [
@@ -67,23 +66,11 @@
           "npm:path-to-regexp@6.2.1"
         ]
       },
-      "@std/assert@0.210.0": {
-        "dependencies": []
-      },
-      "@std/bytes@0.210.0": {
-        "dependencies": []
-      },
       "@std/crypto@0.210.0": {
         "dependencies": [
           "jsr:@std/assert@^0.210.0",
           "jsr:@std/encoding@^0.210.0"
         ]
-      },
-      "@std/encoding@0.210.0": {
-        "dependencies": []
-      },
-      "@std/fmt@0.210.0": {
-        "dependencies": []
       },
       "@std/fs@0.210.0": {
         "dependencies": [
@@ -103,9 +90,6 @@
           "jsr:@std/bytes@^0.210.0"
         ]
       },
-      "@std/media_types@0.210.0": {
-        "dependencies": []
-      },
       "@std/path@0.210.0": {
         "dependencies": [
           "jsr:@std/assert@^0.210.0"
@@ -116,6 +100,11 @@
           "jsr:@std/assert@^0.210.0",
           "jsr:@std/bytes@^0.210.0",
           "jsr:@std/io@^0.210.0"
+        ]
+      },
+      "jsr:@zome_unreferenced/package@0.1.0": {
+        "dependencies": [
+          "jsr:@zome_unreferenced/package_b"
         ]
       }
     }
@@ -365,10 +354,11 @@
     "https://jsr.io/@std/streams/0.210.0/writable_stream_from_writer.ts": "6536e7aa2201e42730f24c901f27376edb092751d1aba6592ff5926c00537998",
     "https://jsr.io/@std/streams/0.210.0/write_all.ts": "f96c63b2ab49ce4b7404250e53e0e02b15d499d8e67e950718280252888aae1d",
     "https://jsr.io/@std/streams/0.210.0/writer_from_stream_writer.ts": "1e442c1523abf3343070edb598b9f71650ee375b53e7b1c8c41d1a2f1dc16a8b",
-    "https://jsr.io/@std/streams/0.210.0/zip_readable_streams.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad638"
+    "https://jsr.io/@std/streams/0.210.0/zip_readable_streams.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad638",
+    "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
   },
   "workspaces": {
-    "deps": [
+    "dependencies": [
       "jsr:@dsherret/dax",
       "jsr:@oak/oak"
     ]
@@ -377,7 +367,7 @@
 
 # remove oak
 {
-  "deps": [
+  "dependencies": [
     "jsr:@dsherret/dax"
   ]
 }
@@ -414,18 +404,6 @@
           "jsr:@std/path@0.210.0",
           "jsr:@std/streams@0.210.0"
         ]
-      },
-      "@dsherret/which@0.0.1": {
-        "dependencies": []
-      },
-      "@std/assert@0.210.0": {
-        "dependencies": []
-      },
-      "@std/bytes@0.210.0": {
-        "dependencies": []
-      },
-      "@std/fmt@0.210.0": {
-        "dependencies": []
       },
       "@std/fs@0.210.0": {
         "dependencies": [
@@ -643,10 +621,11 @@
     "https://jsr.io/@std/streams/0.210.0/writable_stream_from_writer.ts": "6536e7aa2201e42730f24c901f27376edb092751d1aba6592ff5926c00537998",
     "https://jsr.io/@std/streams/0.210.0/write_all.ts": "f96c63b2ab49ce4b7404250e53e0e02b15d499d8e67e950718280252888aae1d",
     "https://jsr.io/@std/streams/0.210.0/writer_from_stream_writer.ts": "1e442c1523abf3343070edb598b9f71650ee375b53e7b1c8c41d1a2f1dc16a8b",
-    "https://jsr.io/@std/streams/0.210.0/zip_readable_streams.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad638"
+    "https://jsr.io/@std/streams/0.210.0/zip_readable_streams.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad638",
+    "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
   },
   "workspaces": {
-    "deps": [
+    "dependencies": [
       "jsr:@dsherret/dax"
     ]
   }
@@ -654,15 +633,17 @@
 
 # remove dax
 {
-  "deps": [
+  "dependencies": [
   ]
 }
 
 # output
 {
   "version": "3",
-  "remote": {},
+  "remote": {
+    "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
+  },
   "workspaces": {
-    "deps": []
+    "dependencies": []
   }
 }

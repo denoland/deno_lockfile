@@ -39,7 +39,7 @@ pub struct WorkspaceConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceMemberConfig {
   #[serde(default)]
-  pub deps: Option<BTreeSet<String>>,
+  pub dependencies: Option<BTreeSet<String>>,
   #[serde(default)]
   pub package_json_deps: Option<BTreeSet<String>>,
 }
@@ -107,6 +107,8 @@ pub struct JsrPackageInfo {
   /// List of package requirements found in the dependency.
   ///
   /// This is used to tell when a package can be removed from the lockfile.
+  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+  #[serde(default)]
   pub dependencies: BTreeSet<String>,
 }
 
@@ -167,14 +169,14 @@ impl PackagesContent {
 #[serde(rename_all = "camelCase")]
 struct LockfilePackageJsonContent {
   #[serde(default)]
-  deps: BTreeSet<String>,
+  dependencies: BTreeSet<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceMemberConfigContent {
   #[serde(default)]
-  deps: Option<BTreeSet<String>>,
+  dependencies: Option<BTreeSet<String>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[serde(default)]
   package_json: Option<LockfilePackageJsonContent>,
@@ -182,16 +184,16 @@ struct WorkspaceMemberConfigContent {
 
 impl WorkspaceMemberConfigContent {
   pub fn is_empty(&self) -> bool {
-    self.deps.is_none() && self.package_json.is_none()
+    self.dependencies.is_none() && self.package_json.is_none()
   }
 
   pub fn dep_reqs(&self) -> impl Iterator<Item = &String> {
     self
       .package_json
       .as_ref()
-      .map(|s| s.deps.iter())
+      .map(|s| s.dependencies.iter())
       .into_iter()
-      .chain(self.deps.as_ref().map(|s| s.iter()))
+      .chain(self.dependencies.as_ref().map(|s| s.iter()))
       .flatten()
   }
 }
@@ -353,8 +355,8 @@ impl Lockfile {
       current: &mut WorkspaceMemberConfigContent,
       new: WorkspaceMemberConfig,
     ) {
-      if let Some(new_deps) = new.deps {
-        match &mut current.deps {
+      if let Some(new_deps) = new.dependencies {
+        match &mut current.dependencies {
           Some(current_deps) => {
             if new_deps != *current_deps {
               let old_deps = std::mem::replace(current_deps, new_deps);
@@ -365,7 +367,7 @@ impl Lockfile {
             }
           }
           None => {
-            current.deps = Some(new_deps);
+            current.dependencies = Some(new_deps);
             *has_content_changed = true;
           }
         }
@@ -376,7 +378,8 @@ impl Lockfile {
       if let Some(new_package_json_deps) = new.package_json_deps {
         match &mut current.package_json {
           Some(current_package_json) => {
-            let current_package_json_deps = &mut current_package_json.deps;
+            let current_package_json_deps =
+              &mut current_package_json.dependencies;
             if new_package_json_deps != *current_package_json_deps {
               // update self.content.package_json
               let old_package_json_deps = std::mem::replace(
@@ -391,7 +394,7 @@ impl Lockfile {
           }
           None => {
             current.package_json = Some(LockfilePackageJsonContent {
-              deps: new_package_json_deps,
+              dependencies: new_package_json_deps,
             });
             *has_content_changed = true;
           }
@@ -411,8 +414,8 @@ impl Lockfile {
     let mut removed_deps = HashSet::new();
 
     // clear out any jsr packages when someone adds an import map
-    if self.content.workspaces.root.deps.is_none()
-      && options.config.root.deps.is_some()
+    if self.content.workspaces.root.dependencies.is_none()
+      && options.config.root.dependencies.is_some()
     {
       self.content.packages.clear_jsr()
     }
@@ -614,6 +617,11 @@ impl Lockfile {
     name: String,
     deps: impl Iterator<Item = String>,
   ) {
+    let mut deps = deps.peekable();
+    if deps.peek().is_none() {
+      return; // skip, don't bother adding
+    }
+
     let package = self.content.packages.jsr.entry(name).or_default();
     let start_count = package.dependencies.len();
     package.dependencies.extend(deps);
