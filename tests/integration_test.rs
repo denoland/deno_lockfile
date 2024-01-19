@@ -29,10 +29,22 @@ fn config_changes() {
     )
     .unwrap();
     for change_and_output in &mut spec.change_and_outputs {
+      // setting the new workspace config should change the has_content_changed flag
+      config_file.has_content_changed = false;
       config_file.set_workspace_config(SetWorkspaceConfigOptions {
         config: serde_json::from_str(&change_and_output.change.text).unwrap(),
         nv_to_jsr_url,
       });
+      assert!(config_file.has_content_changed);
+
+      // now try resetting it and the flag should remain the same
+      config_file.has_content_changed = false;
+      config_file.set_workspace_config(SetWorkspaceConfigOptions {
+        config: serde_json::from_str(&change_and_output.change.text).unwrap(),
+        nv_to_jsr_url,
+      });
+      assert!(!config_file.has_content_changed);
+
       let expected_text = change_and_output.output.text.clone();
       let actual_text = config_file.as_json_string();
       if is_update {
