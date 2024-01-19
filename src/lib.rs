@@ -20,16 +20,24 @@ use thiserror::Error;
 
 use crate::graphs::LockfilePackageGraph;
 
+pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
+  pub config: WorkspaceConfig,
+  /// Gives a name and version from JSR (ex. `@scope/package@1.0.0`)
+  /// and expects a URL to the JSR package. This will then be used to
+  /// remove items from the "remotes" for removed packages.
+  pub nv_to_jsr_url: F,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceConfig {
-  pub deps: Option<BTreeSet<String>>,
-  pub package_json_deps: Option<BTreeSet<String>>,
-  pub members: BTreeMap<String, BTreeSet<String>>,
+  pub root: WorkspaceMemberConfig,
+  pub members: BTreeMap<String, WorkspaceMemberConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceMemberConfig {
-  pub deps: BTreeSet<String>,
+  pub deps: Option<BTreeSet<String>>,
+  pub package_json_deps: Option<BTreeSet<String>>,
 }
 
 pub struct NpmPackageLockfileInfo {
@@ -162,18 +170,33 @@ struct LockfilePackageJsonContent {
 #[serde(rename_all = "camelCase")]
 struct WorkspaceMemberConfigContent {
   #[serde(default)]
-  deps: BTreeSet<String>,
+  deps: Option<BTreeSet<String>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
+  package_json: Option<LockfilePackageJsonContent>,
+}
+
+impl WorkspaceMemberConfigContent {
+  pub fn is_empty(&self) -> bool {
+    self.deps.is_none() && self.package_json.is_none()
+  }
+
+  pub fn dep_reqs(&self) -> impl Iterator<Item = &String> {
+    self
+      .package_json
+      .as_ref()
+      .map(|s| s.deps.iter())
+      .into_iter()
+      .chain(self.deps.as_ref().map(|s| s.iter()).into_iter())
+      .flatten()
+  }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceConfigContent {
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[serde(default)]
-  deps: Option<BTreeSet<String>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[serde(default)]
-  package_json: Option<LockfilePackageJsonContent>,
+  #[serde(default, flatten)]
+  root: WorkspaceMemberConfigContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   members: BTreeMap<String, WorkspaceMemberConfigContent>,
@@ -181,9 +204,14 @@ struct WorkspaceConfigContent {
 
 impl WorkspaceConfigContent {
   pub fn is_empty(&self) -> bool {
-    self.deps.is_none()
-      && self.package_json.is_none()
-      && self.members.is_empty()
+    self.root.is_empty() && self.members.is_empty()
+  }
+
+  fn get_all_dep_reqs(&self) -> impl Iterator<Item = &String> {
+    self
+      .root
+      .dep_reqs()
+      .chain(self.members.values().flat_map(|m| m.dep_reqs()))
   }
 }
 
@@ -267,7 +295,6 @@ impl Lockfile {
     content: &str,
     overwrite: bool,
   ) -> Result<Lockfile, Error> {
-    eprintln!("NEW LOCKFILE: {} {}", filename.display(), overwrite);
     // Writing a lock file always uses the new format.
     if overwrite {
       return Ok(Lockfile {
@@ -295,8 +322,7 @@ impl Lockfile {
     };
     let content = serde_json::from_value::<LockfileContent>(value.into())
       .map_err(|err| {
-        eprintln!("ERROR: {:#}", err);
-        Error::ParseError(filename.display().to_string())
+        Error::ParseError(format!("{}: {:#}", filename.display(), err))
       })?;
 
     Ok(Lockfile {
@@ -313,103 +339,87 @@ impl Lockfile {
     json_string
   }
 
-  pub fn update_workspace_config(&mut self, config: WorkspaceConfig) {
+  pub fn set_workspace_config<F: Fn(&str) -> Option<String>>(
+    &mut self,
+    options: SetWorkspaceConfigOptions<F>,
+  ) {
+    fn update_workspace_member(
+      has_content_changed: &mut bool,
+      removed_deps: &mut HashSet<String>,
+      current: &mut WorkspaceMemberConfigContent,
+      new: WorkspaceMemberConfig,
+    ) {
+      if let Some(new_deps) = new.deps {
+        match &mut current.deps {
+          Some(current_deps) => {
+            if new_deps != *current_deps {
+              let old_deps = std::mem::replace(current_deps, new_deps);
+
+              removed_deps.extend(old_deps);
+
+              *has_content_changed = true;
+            }
+          }
+          None => {
+            current.deps = Some(new_deps);
+            *has_content_changed = true;
+          }
+        }
+      } else {
+        // don't clear the deps because someone might be running
+        // a one-off script without a deno.json
+      }
+      if let Some(new_package_json_deps) = new.package_json_deps {
+        match &mut current.package_json {
+          Some(current_package_json) => {
+            let current_package_json_deps = &mut current_package_json.deps;
+            if new_package_json_deps != *current_package_json_deps {
+              // update self.content.package_json
+              let old_package_json_deps = std::mem::replace(
+                current_package_json_deps,
+                new_package_json_deps,
+              );
+
+              removed_deps.extend(old_package_json_deps);
+
+              *has_content_changed = true;
+            }
+          }
+          None => {
+            current.package_json = Some(LockfilePackageJsonContent {
+              deps: new_package_json_deps,
+            });
+            *has_content_changed = true;
+          }
+        }
+      } else {
+        // don't clear the package.json field because someone might
+        // be running a one-off script without a package.json
+      }
+    }
+
     let old_deps = self
       .content
       .workspaces
-      .package_json
-      .as_ref()
-      .map(|s| s.deps.iter().map(|s| format!("npm:{}", s)))
-      .into_iter()
-      .flatten()
-      .chain(
-        self
-          .content
-          .workspaces
-          .deps
-          .as_ref()
-          .map(|s| s.iter().map(|s| s.to_string()))
-          .into_iter()
-          .flatten(),
-      )
-      .chain(
-        self
-          .content
-          .workspaces
-          .members
-          .values()
-          .flat_map(|m| m.deps.iter().map(|s| s.to_string())),
-      )
+      .get_all_dep_reqs()
+      .map(|s| s.to_string())
       .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
-    if let Some(new_package_json_deps) = config.package_json_deps {
-      match &mut self.content.workspaces.package_json {
-        Some(current_package_json) => {
-          let current_package_json_deps = &mut current_package_json.deps;
-          if new_package_json_deps != *current_package_json_deps {
-            // update self.content.package_json
-            let old_package_json_deps = std::mem::replace(
-              current_package_json_deps,
-              new_package_json_deps,
-            );
-            let new_package_json_deps = current_package_json_deps;
 
-            // figure out the removed package.json deps
-            removed_deps.extend(
-              old_package_json_deps
-                .iter()
-                .filter(|c| !new_package_json_deps.contains(*c))
-                .map(|s| format!("npm:{}", s)),
-            );
-
-            self.has_content_changed = true;
-          }
-        }
-        None => {
-          self.content.workspaces.package_json =
-            Some(LockfilePackageJsonContent {
-              deps: new_package_json_deps,
-            });
-          self.has_content_changed = true;
-          // todo(THIS PR): document how it would be nice to clear out the npm deps in this scenario
-        }
-      }
-    } else {
-      // don't clear the package.json field because someone might
-      // be running a one-off script without a package.json
+    // clear out any jsr packages when someone adds an import map
+    if self.content.workspaces.root.deps.is_none()
+      && options.config.root.deps.is_some()
+    {
+      self.content.packages.clear_jsr()
     }
 
-    if let Some(new_import_map_deps) = config.deps {
-      match &mut self.content.workspaces.deps {
-        Some(current_import_map_deps) => {
-          if new_import_map_deps != *current_import_map_deps {
-            let old_import_map_deps =
-              std::mem::replace(current_import_map_deps, new_import_map_deps);
-            let new_import_map_deps = current_import_map_deps;
-
-            // figure out the removed import map deps
-            removed_deps.extend(
-              old_import_map_deps
-                .into_iter()
-                .filter(|c| !new_import_map_deps.contains(c)),
-            );
-
-            self.has_content_changed = true;
-          }
-        }
-        None => {
-          // todo(THIS PR): document how it would be nice to clear out the npm deps in this scenario too
-          self.content.workspaces.deps = Some(new_import_map_deps);
-          // clear out all jsr related specifiers when adding an import map
-          self.content.packages.clear_jsr();
-          self.has_content_changed = true;
-        }
-      }
-    }
-
-    if let Some(import_map_deps) = &self.content.workspaces.deps {
-      removed_deps.retain(|dep| !import_map_deps.contains(dep));
-    }
+    // set the root
+    update_workspace_member(
+      &mut self.has_content_changed,
+      &mut removed_deps,
+      &mut self.content.workspaces.root,
+      options.config.root,
+    );
 
     // now go through the workspaces
     let mut unhandled_members = self
@@ -419,47 +429,32 @@ impl Lockfile {
       .keys()
       .cloned()
       .collect::<HashSet<_>>();
-    for (member_name, new_import_map_deps) in config.members {
-      match &mut self.content.workspaces.members.get_mut(&member_name) {
-        Some(member) => {
-          unhandled_members.remove(&member_name);
-          let current_import_map_deps = &mut member.deps;
-          if new_import_map_deps != *current_import_map_deps {
-            let old_import_map_deps =
-              std::mem::replace(current_import_map_deps, new_import_map_deps);
-            let new_import_map_deps = current_import_map_deps;
-
-            // figure out the removed import map deps
-            removed_deps.extend(
-              old_import_map_deps
-                .into_iter()
-                .filter(|c| !new_import_map_deps.contains(c)),
-            );
-
-            self.has_content_changed = true;
-          }
-        }
-        None => {
-          self.content.workspaces.members.insert(
-            member_name,
-            WorkspaceMemberConfigContent {
-              deps: new_import_map_deps,
-            },
-          );
-          self.has_content_changed = true;
-        }
-      }
+    for (member_name, new_member) in options.config.members {
+      unhandled_members.remove(&member_name);
+      let current_member = self
+        .content
+        .workspaces
+        .members
+        .entry(member_name)
+        .or_default();
+      update_workspace_member(
+        &mut self.has_content_changed,
+        &mut removed_deps,
+        current_member,
+        new_member,
+      );
     }
 
     for member in unhandled_members {
       if let Some(member) = self.content.workspaces.members.remove(&member) {
-        removed_deps.extend(member.deps.into_iter());
+        removed_deps.extend(member.dep_reqs().cloned());
         self.has_content_changed = true;
       }
     }
 
-    for member in self.content.workspaces.members.values() {
-      removed_deps.retain(|dep| !member.deps.contains(dep));
+    // update the removed deps to keep what's still found in the workspace
+    for dep in self.content.workspaces.get_all_dep_reqs() {
+      removed_deps.remove(dep);
     }
 
     if !removed_deps.is_empty() {
@@ -470,12 +465,13 @@ impl Lockfile {
       graph.remove_root_packages(removed_deps.into_iter());
 
       // clear out the packages
-      self.content.packages.specifiers.clear();
-      self.content.packages.npm.clear();
-      self.content.packages.jsr.clear();
+      self.content.packages = Default::default();
 
       // now populate the graph back into the packages
-      graph.clear_remotes_for_removed_jsr_packages(&mut self.content.remote);
+      graph.clear_remotes_for_removed_jsr_packages(
+        &mut self.content.remote,
+        options.nv_to_jsr_url,
+      );
       graph.populate_packages(&mut self.content.packages);
     }
   }

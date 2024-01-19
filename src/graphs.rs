@@ -32,7 +32,6 @@ impl LockfileNpmPackageId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct LockfilePkgReq(String);
 
-// TODO(THIS PR): REFERENCE_COUNT SHOULD INCLUDE THE ROOT PACKAGES REFERENCING IT
 enum LockfileGraphPackage {
   Jsr(LockfileJsrGraphPackage),
   Npm(LockfileNpmGraphPackage),
@@ -124,7 +123,6 @@ impl LockfilePackageGraph {
         })
       })
       .collect::<VecDeque<_>>();
-    eprintln!("PENDING: {:#?}", pending);
     while let Some(id) = pending.pop_back() {
       if let Some(package) = packages.get_mut(&id) {
         match package {
@@ -169,7 +167,6 @@ impl LockfilePackageGraph {
       HashSet::with_capacity(self.root_packages.len());
     visited_root_packages.extend(pending_reqs.iter().cloned());
     while let Some(pending_req) = pending_reqs.pop_front() {
-      eprintln!("REMOVING package req: {:#?}", pending_req);
       if let Some(id) = self.root_packages.get(&pending_req) {
         if let LockfilePkgId::Npm(id) = id {
           if let Some(first_part) = id.parts().next() {
@@ -189,11 +186,9 @@ impl LockfilePackageGraph {
     }
 
     while let Some(id) = pending.pop_back() {
-      eprintln!("Looking at pending: {:?}", id);
       if let Some(package) = self.packages.get_mut(&id) {
         match package {
           LockfileGraphPackage::Jsr(package) => {
-            eprintln!("Package: {:?} - Count: {}", id, package.reference_count);
             if package.reference_count > 1 {
               package.reference_count -= 1;
             } else {
@@ -207,7 +202,6 @@ impl LockfilePackageGraph {
             }
           }
           LockfileGraphPackage::Npm(package) => {
-            eprintln!("Package: {:?} - Count: {}", id, package.reference_count);
             if package.reference_count > 1 {
               package.reference_count -= 1;
             } else {
@@ -242,7 +236,6 @@ impl LockfilePackageGraph {
       );
     }
     for (id, package) in self.packages {
-      eprintln!("ADDING: {:#?}", id);
       match package {
         LockfileGraphPackage::Jsr(package) => {
           packages.jsr.insert(
@@ -282,12 +275,17 @@ impl LockfilePackageGraph {
   pub fn clear_remotes_for_removed_jsr_packages(
     &self,
     redirects: &mut BTreeMap<String, String>,
+    nv_to_jsr_url: impl Fn(&str) -> Option<String>,
   ) {
     for nv in &self.removed_jsr_packages {
-      // todo: should be parsed in deno's cli
-      let path = format!("@{}", nv.0[1..].replace("@", "/"));
-      let start = format!("https://jsr.io/{}/", path);
-      redirects.retain(|k, _| !k.starts_with(&start));
+      if let Some(url) = nv_to_jsr_url(&nv.0) {
+        debug_assert!(
+          url.ends_with("/"),
+          "JSR URL should end with slash: {}",
+          url
+        );
+        redirects.retain(|k, _| !k.starts_with(&url));
+      }
     }
   }
 }
