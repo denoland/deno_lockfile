@@ -22,6 +22,15 @@ impl ConfigChangeSpec {
   }
 
   fn parse(path: PathBuf, text: &str) -> Self {
+    fn take_header<'a>(lines: &mut impl Iterator<Item = &'a str>) -> String {
+      lines
+        .next()
+        .unwrap()
+        .strip_prefix("# ")
+        .unwrap()
+        .to_string()
+    }
+
     fn take_next<'a>(
       lines: &mut Peekable<impl Iterator<Item = &'a str>>,
     ) -> String {
@@ -40,32 +49,17 @@ impl ConfigChangeSpec {
 
     let mut lines = text.split('\n').peekable();
     let original_text = SpecFile {
-      title: lines
-        .next()
-        .unwrap()
-        .strip_prefix("# ")
-        .unwrap()
-        .to_string(),
+      title: take_header(&mut lines),
       text: take_next(&mut lines),
     };
     let mut change_and_outputs = Vec::new();
     while lines.peek().is_some() {
       let change = SpecFile {
-        title: lines
-          .next()
-          .unwrap()
-          .strip_prefix("# ")
-          .unwrap()
-          .to_string(),
+        title: take_header(&mut lines),
         text: take_next(&mut lines),
       };
       let output = SpecFile {
-        title: lines
-          .next()
-          .unwrap()
-          .strip_prefix("# ")
-          .unwrap()
-          .to_string(),
+        title: take_header(&mut lines),
         text: take_next(&mut lines),
       };
       change_and_outputs.push(ChangeAndOutput { change, output });
@@ -80,7 +74,10 @@ impl ConfigChangeSpec {
   pub fn emit(&self) -> String {
     let mut text = String::new();
     text.push_str(&self.original_text.emit());
-    for change_and_output in &self.change_and_outputs {
+    for (i, change_and_output) in self.change_and_outputs.iter().enumerate() {
+      if i > 0 {
+        text.push('\n');
+      }
       text.push_str(&change_and_output.change.emit());
       text.push_str(&change_and_output.output.emit());
     }
