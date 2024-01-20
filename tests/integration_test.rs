@@ -86,7 +86,6 @@ fn config_changes() {
       false,
     )
     .unwrap();
-    eprintln!("CONFIG FILE: {:#?}", config_file.content);
     for change_and_output in &mut spec.change_and_outputs {
       // setting the new workspace config should change the has_content_changed flag
       config_file.has_content_changed = false;
