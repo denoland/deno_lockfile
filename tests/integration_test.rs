@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
 use pretty_assertions::assert_eq;
-use serde;
 
 use deno_lockfile::Lockfile;
 use deno_lockfile::SetWorkspaceConfigOptions;
@@ -18,7 +17,7 @@ mod helpers;
 
 fn nv_to_jsr_url(nv: &str) -> Option<String> {
   // very hacky, but good enough for tests
-  let path = format!("@{}", nv[1..].replace("@", "/"));
+  let path = format!("@{}", nv[1..].replace('@', "/"));
   Some(format!("https://jsr.io/{}/", path))
 }
 

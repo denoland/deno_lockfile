@@ -50,7 +50,7 @@ impl ConfigChangeSpec {
       let mut result = String::new();
       while let Some(line) = lines.next() {
         result.push_str(line);
-        result.push_str("\n");
+        result.push('\n');
         if let Some(next_line) = lines.peek() {
           if next_line.starts_with('#') {
             break;
