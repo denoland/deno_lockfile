@@ -120,7 +120,6 @@ impl LockfilePackageGraph {
       );
     }
 
-    // trace every root identifier through the graph finding all the corresponding packages
     let mut root_ids = old_config_file_packages
       .filter_map(|value| {
         content.specifiers.get(value).and_then(|value| {
@@ -136,6 +135,7 @@ impl LockfilePackageGraph {
       })
       .collect::<Vec<_>>();
 
+    // trace every root identifier through the graph finding all corresponding packages
     while let Some(root_id) = root_ids.pop() {
       let mut pending = VecDeque::from([root_id.clone()]);
       while let Some(id) = pending.pop_back() {
@@ -174,28 +174,34 @@ impl LockfilePackageGraph {
     package_reqs: impl Iterator<Item = String>,
   ) {
     let mut root_ids = Vec::new();
-    let mut pending_reqs =
-      package_reqs.map(LockfilePkgReq).collect::<VecDeque<_>>();
-    let mut visited_root_packages =
-      HashSet::with_capacity(self.root_packages.len());
-    visited_root_packages.extend(pending_reqs.iter().cloned());
-    while let Some(pending_req) = pending_reqs.pop_front() {
-      if let Some(id) = self.root_packages.get(&pending_req) {
-        if let LockfilePkgId::Npm(id) = id {
-          if let Some(first_part) = id.parts().next() {
-            for (req, id) in &self.root_packages {
-              if let LockfilePkgId::Npm(id) = &id {
-                if id.parts().skip(1).any(|part| part == first_part) {
-                  let has_visited = visited_root_packages.insert(req.clone());
-                  if has_visited {
-                    pending_reqs.push_back(req.clone());
+
+    // collect the root ids being removed
+    {
+      let mut pending_reqs =
+        package_reqs.map(LockfilePkgReq).collect::<VecDeque<_>>();
+      let mut visited_root_packages =
+        HashSet::with_capacity(self.root_packages.len());
+      visited_root_packages.extend(pending_reqs.iter().cloned());
+      while let Some(pending_req) = pending_reqs.pop_front() {
+        if let Some(id) = self.root_packages.get(&pending_req) {
+          if let LockfilePkgId::Npm(id) = id {
+            if let Some(first_part) = id.parts().next() {
+              for (req, id) in &self.root_packages {
+                if let LockfilePkgId::Npm(id) = &id {
+                  // be a bit aggressive and remove any npm packages that
+                  // have this package as a peer dependency
+                  if id.parts().skip(1).any(|part| part == first_part) {
+                    let has_visited = visited_root_packages.insert(req.clone());
+                    if has_visited {
+                      pending_reqs.push_back(req.clone());
+                    }
                   }
                 }
               }
             }
           }
+          root_ids.push(id.clone());
         }
-        root_ids.push(id.clone());
       }
     }
 

@@ -375,6 +375,7 @@ impl Lockfile {
         // don't clear the deps because someone might be running
         // a one-off script without a deno.json
       }
+
       if let Some(new_package_json_deps) = new.package_json_deps {
         match &mut current.package_json {
           Some(current_package_json) => {

@@ -86,13 +86,17 @@ fn config_changes() {
       false,
     )
     .unwrap();
+    eprintln!("CONFIG FILE: {:#?}", config_file.content);
     for change_and_output in &mut spec.change_and_outputs {
       // setting the new workspace config should change the has_content_changed flag
       config_file.has_content_changed = false;
-      let config: WorkspaceConfigContent =
-        serde_json::from_str(&change_and_output.change.text).unwrap();
+      let config = serde_json::from_str::<WorkspaceConfigContent>(
+        &change_and_output.change.text,
+      )
+      .unwrap()
+      .into_workspace_config();
       config_file.set_workspace_config(SetWorkspaceConfigOptions {
-        config: config.into_workspace_config(),
+        config: config.clone(),
         nv_to_jsr_url,
       });
       assert_eq!(
@@ -105,7 +109,7 @@ fn config_changes() {
       // now try resetting it and the flag should remain the same
       config_file.has_content_changed = false;
       config_file.set_workspace_config(SetWorkspaceConfigOptions {
-        config: serde_json::from_str(&change_and_output.change.text).unwrap(),
+        config: config.clone(),
         nv_to_jsr_url,
       });
       assert!(!config_file.has_content_changed);
