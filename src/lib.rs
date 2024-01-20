@@ -129,7 +129,7 @@ pub struct PackagesContent {
   ///     "dependencies": [
   ///       "jsr:@std/bytes@0.210",
   ///       // ...etc...
-  ///       "npm:path-to-regexpr@6.2.1"
+  ///       "npm:path-to-regexpr@^6.2"
   ///     ]
   ///   }
   /// }
@@ -154,14 +154,6 @@ pub struct PackagesContent {
 impl PackagesContent {
   fn is_empty(&self) -> bool {
     self.specifiers.is_empty() && self.npm.is_empty()
-  }
-
-  fn clear_jsr(&mut self) {
-    self.specifiers.retain(|k, v| {
-      let has_npm = k.starts_with("jsr:") || v.starts_with("jsr:");
-      !has_npm
-    });
-    self.jsr.clear();
   }
 }
 
@@ -413,13 +405,6 @@ impl Lockfile {
       .map(|s| s.to_string())
       .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
-
-    // clear out any jsr packages when someone adds an import map
-    if self.content.workspace.root.dependencies.is_none()
-      && options.config.root.dependencies.is_some()
-    {
-      self.content.packages.clear_jsr()
-    }
 
     // set the root
     update_workspace_member(
