@@ -472,8 +472,8 @@ impl Lockfile {
       // create the graph
       let mut graph = LockfilePackageGraph::from_lockfile(
         packages,
-        old_deps.iter().map(|dep| dep.as_str()),
         remotes,
+        old_deps.iter().map(|dep| dep.as_str()),
         options.nv_to_jsr_url,
       );
 

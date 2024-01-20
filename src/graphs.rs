@@ -65,8 +65,8 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
 {
   pub fn from_lockfile<'a>(
     content: PackagesContent,
-    old_config_file_packages: impl Iterator<Item = &'a str>,
     remotes: BTreeMap<String, String>,
+    old_config_file_packages: impl Iterator<Item = &'a str>,
     nv_to_jsr_url: FNvToJsrUrl,
   ) -> Self {
     let mut root_packages =
