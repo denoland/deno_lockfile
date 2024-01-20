@@ -154,7 +154,7 @@
     }
   },
   "remote": {},
-  "workspaces": {
+  "workspace": {
     "dependencies": [
       "npm:ts-morph"
     ]
@@ -171,7 +171,7 @@
 {
   "version": "3",
   "remote": {},
-  "workspaces": {
+  "workspace": {
     "dependencies": []
   }
 }

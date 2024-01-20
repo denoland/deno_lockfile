@@ -236,7 +236,7 @@ pub struct LockfileContent {
   remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
   #[serde(default)]
-  workspaces: WorkspaceConfigContent,
+  workspace: WorkspaceConfigContent,
 }
 
 impl LockfileContent {
@@ -246,7 +246,7 @@ impl LockfileContent {
       packages: Default::default(),
       redirects: Default::default(),
       remote: BTreeMap::new(),
-      workspaces: Default::default(),
+      workspace: Default::default(),
     }
   }
 }
@@ -407,14 +407,14 @@ impl Lockfile {
 
     let old_deps = self
       .content
-      .workspaces
+      .workspace
       .get_all_dep_reqs()
       .map(|s| s.to_string())
       .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
 
     // clear out any jsr packages when someone adds an import map
-    if self.content.workspaces.root.dependencies.is_none()
+    if self.content.workspace.root.dependencies.is_none()
       && options.config.root.dependencies.is_some()
     {
       self.content.packages.clear_jsr()
@@ -424,14 +424,14 @@ impl Lockfile {
     update_workspace_member(
       &mut self.has_content_changed,
       &mut removed_deps,
-      &mut self.content.workspaces.root,
+      &mut self.content.workspace.root,
       options.config.root,
     );
 
     // now go through the workspaces
     let mut unhandled_members = self
       .content
-      .workspaces
+      .workspace
       .members
       .keys()
       .cloned()
@@ -440,7 +440,7 @@ impl Lockfile {
       unhandled_members.remove(&member_name);
       let current_member = self
         .content
-        .workspaces
+        .workspace
         .members
         .entry(member_name)
         .or_default();
@@ -453,14 +453,14 @@ impl Lockfile {
     }
 
     for member in unhandled_members {
-      if let Some(member) = self.content.workspaces.members.remove(&member) {
+      if let Some(member) = self.content.workspace.members.remove(&member) {
         removed_deps.extend(member.dep_reqs().cloned());
         self.has_content_changed = true;
       }
     }
 
     // update the removed deps to keep what's still found in the workspace
-    for dep in self.content.workspaces.get_all_dep_reqs() {
+    for dep in self.content.workspace.get_all_dep_reqs() {
       removed_deps.remove(dep);
     }
 

@@ -357,7 +357,7 @@
     "https://jsr.io/@std/streams/0.210.0/zip_readable_streams.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad638",
     "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
   },
-  "workspaces": {
+  "workspace": {
     "dependencies": [
       "jsr:@dsherret/dax",
       "jsr:@oak/oak"
@@ -631,7 +631,7 @@
     "https://jsr.io/@std/streams/0.210.0/zip_readable_streams.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad638",
     "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
   },
-  "workspaces": {
+  "workspace": {
     "dependencies": [
       "jsr:@dsherret/dax"
     ]
@@ -663,7 +663,7 @@
   "remote": {
     "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
   },
-  "workspaces": {
+  "workspace": {
     "dependencies": []
   }
 }
