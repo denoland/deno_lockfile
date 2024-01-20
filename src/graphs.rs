@@ -53,16 +53,21 @@ struct LockfileJsrGraphPackage {
 
 /// Graph used to analyze a lockfile to determine which packages
 /// and remotes can be removed based on config file changes.
-pub struct LockfilePackageGraph {
+pub struct LockfilePackageGraph<FNvToJsrUrl: Fn(&str) -> Option<String>> {
   root_packages: HashMap<LockfilePkgReq, LockfilePkgId>,
   packages: HashMap<LockfilePkgId, LockfileGraphPackage>,
-  removed_jsr_packages: Vec<LockfileJsrPkgNv>,
+  remotes: BTreeMap<String, String>,
+  nv_to_jsr_url: FNvToJsrUrl,
 }
 
-impl LockfilePackageGraph {
+impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
+  LockfilePackageGraph<FNvToJsrUrl>
+{
   pub fn from_lockfile<'a>(
-    content: &PackagesContent,
+    content: PackagesContent,
     old_config_file_packages: impl Iterator<Item = &'a str>,
+    remotes: BTreeMap<String, String>,
+    nv_to_jsr_url: FNvToJsrUrl,
   ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
@@ -70,7 +75,7 @@ impl LockfilePackageGraph {
       );
     // collect the specifiers to version mappings
     let mut packages = HashMap::new();
-    for (key, value) in &content.specifiers {
+    for (key, value) in content.specifiers {
       if let Some(value) = value.strip_prefix("npm:") {
         root_packages.insert(
           LockfilePkgReq(key.to_string()),
@@ -78,7 +83,7 @@ impl LockfilePackageGraph {
         );
       } else if let Some(value) = value.strip_prefix("jsr:") {
         let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string()));
-        root_packages.insert(LockfilePkgReq(key.to_string()), nv.clone());
+        root_packages.insert(LockfilePkgReq(key), nv.clone());
         packages.insert(
           nv,
           LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default()),
@@ -86,7 +91,7 @@ impl LockfilePackageGraph {
       }
     }
 
-    for (nv, content_package) in &content.jsr {
+    for (nv, content_package) in content.jsr {
       let new_deps = &content_package.dependencies;
       let package = packages
         .entry(LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())))
@@ -103,7 +108,7 @@ impl LockfilePackageGraph {
         LockfileGraphPackage::Npm(_) => unreachable!(),
       }
     }
-    for (id, package) in &content.npm {
+    for (id, package) in content.npm {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
@@ -122,16 +127,9 @@ impl LockfilePackageGraph {
 
     let mut root_ids = old_config_file_packages
       .filter_map(|value| {
-        content.specifiers.get(value).and_then(|value| {
-          #[allow(clippy::manual_map)] // not easier to read
-          if let Some(value) = value.strip_prefix("npm:") {
-            Some(LockfilePkgId::Npm(LockfileNpmPackageId(value.to_string())))
-          } else if let Some(value) = value.strip_prefix("jsr:") {
-            Some(LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string())))
-          } else {
-            None
-          }
-        })
+        root_packages
+          .get(&LockfilePkgReq(value.to_string()))
+          .cloned()
       })
       .collect::<Vec<_>>();
 
@@ -165,7 +163,8 @@ impl LockfilePackageGraph {
     Self {
       root_packages,
       packages,
-      removed_jsr_packages: Default::default(),
+      remotes,
+      nv_to_jsr_url,
     }
   }
 
@@ -205,6 +204,9 @@ impl LockfilePackageGraph {
       }
     }
 
+    // Go through the graph and mark the packages that no
+    // longer use this root id. If the package goes to having
+    // no root ids, then remove it from the graph.
     while let Some(root_id) = root_ids.pop() {
       let mut pending = VecDeque::from([root_id.clone()]);
       while let Some(id) = pending.pop_back() {
@@ -242,11 +244,23 @@ impl LockfilePackageGraph {
     self.packages.remove(&id);
     self.root_packages.retain(|_, pkg_id| *pkg_id != id);
     if let LockfilePkgId::Jsr(nv) = id {
-      self.removed_jsr_packages.push(nv);
+      if let Some(url) = (self.nv_to_jsr_url)(&nv.0) {
+        debug_assert!(
+          url.ends_with('/'),
+          "JSR URL should end with slash: {}",
+          url
+        );
+        self.remotes.retain(|k, _| !k.starts_with(&url));
+      }
     }
   }
 
-  pub fn populate_packages(self, packages: &mut PackagesContent) {
+  pub fn populate_packages(
+    self,
+    packages: &mut PackagesContent,
+    remotes: &mut BTreeMap<String, String>,
+  ) {
+    *remotes = self.remotes;
     for (req, id) in self.root_packages {
       packages.specifiers.insert(
         req.0,
@@ -292,23 +306,6 @@ impl LockfilePackageGraph {
             },
           );
         }
-      }
-    }
-  }
-
-  pub fn clear_remotes_for_removed_jsr_packages(
-    &self,
-    redirects: &mut BTreeMap<String, String>,
-    nv_to_jsr_url: impl Fn(&str) -> Option<String>,
-  ) {
-    for nv in &self.removed_jsr_packages {
-      if let Some(url) = nv_to_jsr_url(&nv.0) {
-        debug_assert!(
-          url.ends_with('/'),
-          "JSR URL should end with slash: {}",
-          url
-        );
-        redirects.retain(|k, _| !k.starts_with(&url));
       }
     }
   }

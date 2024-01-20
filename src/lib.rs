@@ -466,21 +466,25 @@ impl Lockfile {
     }
 
     if !removed_deps.is_empty() {
+      let packages = std::mem::take(&mut self.content.packages);
+      let remotes = std::mem::take(&mut self.content.remote);
+
+      // create the graph
       let mut graph = LockfilePackageGraph::from_lockfile(
-        &self.content.packages,
+        packages,
         old_deps.iter().map(|dep| dep.as_str()),
-      );
-      graph.remove_root_packages(removed_deps.into_iter());
-
-      // clear out the packages
-      self.content.packages = Default::default();
-
-      // now populate the graph back into the packages
-      graph.clear_remotes_for_removed_jsr_packages(
-        &mut self.content.remote,
+        remotes,
         options.nv_to_jsr_url,
       );
-      graph.populate_packages(&mut self.content.packages);
+
+      // remove the packages
+      graph.remove_root_packages(removed_deps.into_iter());
+
+      // now populate the graph back into the packages
+      graph.populate_packages(
+        &mut self.content.packages,
+        &mut self.content.remote,
+      );
     }
   }
 
