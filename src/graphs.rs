@@ -38,6 +38,7 @@ enum LockfileGraphPackage {
 }
 
 struct LockfileNpmGraphPackage {
+  /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
   integrity: String,
   dependencies: BTreeMap<String, LockfileNpmPackageId>,
@@ -45,6 +46,7 @@ struct LockfileNpmGraphPackage {
 
 #[derive(Default)]
 struct LockfileJsrGraphPackage {
+  /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
   dependencies: BTreeSet<LockfilePkgReq>,
 }

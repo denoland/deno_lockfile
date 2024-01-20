@@ -123,19 +123,6 @@ pub struct PackagesContent {
   #[serde(default)]
   pub specifiers: BTreeMap<String, String>,
 
-  /// Mapping between resolved npm specifiers and their associated info, eg.
-  /// {
-  ///   "chalk@5.0.0": {
-  ///     "integrity": "sha512-...",
-  ///     "dependencies": {
-  ///       "ansi-styles": "ansi-styles@4.1.0",
-  ///     }
-  ///   }
-  /// }
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  #[serde(default)]
-  pub npm: BTreeMap<String, NpmPackageInfo>,
-
   /// Mapping between resolved jsr specifiers and their associated info, eg.
   /// {
   ///   "@oak/oak@12.6.3": {
@@ -149,6 +136,19 @@ pub struct PackagesContent {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub jsr: BTreeMap<String, JsrPackageInfo>,
+
+  /// Mapping between resolved npm specifiers and their associated info, eg.
+  /// {
+  ///   "chalk@5.0.0": {
+  ///     "integrity": "sha512-...",
+  ///     "dependencies": {
+  ///       "ansi-styles": "ansi-styles@4.1.0",
+  ///     }
+  ///   }
+  /// }
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub npm: BTreeMap<String, NpmPackageInfo>,
 }
 
 impl PackagesContent {
