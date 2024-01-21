@@ -28,7 +28,7 @@ pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
   pub nv_to_jsr_url: F,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
   #[serde(flatten)]
   pub root: WorkspaceMemberConfig,
@@ -36,7 +36,7 @@ pub struct WorkspaceConfig {
   pub members: BTreeMap<String, WorkspaceMemberConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceMemberConfig {
   #[serde(default)]
   pub dependencies: Option<BTreeSet<String>>,
@@ -241,6 +241,13 @@ impl LockfileContent {
       workspace: Default::default(),
     }
   }
+
+  pub fn is_empty(&self) -> bool {
+    self.packages.is_empty()
+      && self.redirects.is_empty()
+      && self.remote.is_empty()
+      && self.workspace.is_empty()
+  }
 }
 
 #[derive(Debug, Clone, Hash)]
@@ -398,6 +405,12 @@ impl Lockfile {
       }
     }
 
+    // If the lockfile is empty, it's most likely not created yet and so
+    // we don't want this information being added to the lockfile to cause
+    // a lockfile to be created. If this is the case, revert the lockfile back
+    // to !self.has_content_changed after populating it with this information
+    let allow_content_changed =
+      self.has_content_changed || !self.content.is_empty();
     let old_deps = self
       .content
       .workspace
@@ -470,6 +483,12 @@ impl Lockfile {
         &mut self.content.packages,
         &mut self.content.remote,
       );
+    }
+
+    if !allow_content_changed {
+      // revert it back so this change doesn't by itself cause
+      // a lockfile to be created.
+      self.has_content_changed = false;
     }
   }
 
