@@ -26,6 +26,9 @@ impl ConfigChangeSpec {
     let files = if only_files.is_empty() {
       files
     } else {
+      if std::env::var("CI").is_ok() {
+        panic!("Cannot use _only files on CI");
+      }
       only_files
     };
     files

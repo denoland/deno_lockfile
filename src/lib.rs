@@ -22,6 +22,10 @@ use crate::graphs::LockfilePackageGraph;
 
 pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
   pub config: WorkspaceConfig,
+  /// If the user is running with --no-config
+  pub no_config: bool,
+  /// If the user is running with --no-npm, we don't want to clear out the package.json
+  pub no_npm: bool,
   /// Gives a name and version from JSR (ex. `@scope/package@1.0.0`)
   /// and expects a URL to the JSR package. This will then be used to
   /// remove items from the "remotes" for removed packages.
@@ -311,24 +315,20 @@ impl Lockfile {
     }
 
     let value: serde_json::Map<String, serde_json::Value> =
-      serde_json::from_str(content)
-        .map_err(|_| Error::ParseError(filename.display().to_string()))?;
+      serde_json::from_str(content).map_err(|err| {
+        Error::ParseError(filename.display().to_string(), err)
+      })?;
     let version = value.get("version").and_then(|v| v.as_str());
     let value = match version {
       Some("3") => value,
       Some("2") => transforms::transform2_to_3(value),
       None => transforms::transform2_to_3(transforms::transform1_to_2(value)),
       Some(version) => {
-        return Err(Error::ParseError(format!(
-          "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile.",
-          version
-        )))
+        return Err(Error::UnsupportedVersion(version.to_string()));
       }
     };
     let content = serde_json::from_value::<LockfileContent>(value.into())
-      .map_err(|err| {
-        Error::ParseError(format!("{}: {:#}", filename.display(), err))
-      })?;
+      .map_err(|err| Error::ParseError(filename.display().to_string(), err))?;
 
     Ok(Lockfile {
       overwrite,
@@ -346,7 +346,7 @@ impl Lockfile {
 
   pub fn set_workspace_config<F: Fn(&str) -> Option<String>>(
     &mut self,
-    options: SetWorkspaceConfigOptions<F>,
+    mut options: SetWorkspaceConfigOptions<F>,
   ) {
     fn update_workspace_member(
       has_content_changed: &mut bool,
@@ -370,9 +370,9 @@ impl Lockfile {
             *has_content_changed = true;
           }
         }
-      } else {
-        // don't clear the deps because someone might be running
-        // a one-off script without a deno.json
+      } else if let Some(deps) = current.dependencies.take() {
+        removed_deps.extend(deps);
+        *has_content_changed = true;
       }
 
       if let Some(new_package_json_deps) = new.package_json_deps {
@@ -399,9 +399,63 @@ impl Lockfile {
             *has_content_changed = true;
           }
         }
-      } else {
-        // don't clear the package.json field because someone might
-        // be running a one-off script without a package.json
+      } else if let Some(current_package_json) = current.package_json.take() {
+        removed_deps.extend(current_package_json.dependencies);
+        *has_content_changed = true;
+      }
+    }
+
+    // if specified, don't modify the package.json dependencies
+    if options.no_npm || options.no_config {
+      if options.config.root.package_json_deps.is_none() {
+        options.config.root.package_json_deps = self
+          .content
+          .workspace
+          .root
+          .package_json
+          .as_ref()
+          .map(|p| p.dependencies.clone());
+      }
+      for (key, value) in options.config.members.iter_mut() {
+        if value.package_json_deps.is_none() {
+          value.package_json_deps = self
+            .content
+            .workspace
+            .members
+            .get(key)
+            .and_then(|m| m.package_json.as_ref())
+            .map(|p| p.dependencies.clone());
+        }
+      }
+    }
+    if options.no_config {
+      if options.config.root.dependencies.is_none() {
+        options.config.root.dependencies =
+          self.content.workspace.root.dependencies.clone();
+      }
+      for (key, value) in options.config.members.iter_mut() {
+        if value.dependencies.is_none() {
+          value.dependencies = self
+            .content
+            .workspace
+            .members
+            .get(key)
+            .and_then(|m| m.dependencies.clone());
+        }
+      }
+      for (key, value) in self.content.workspace.members.iter() {
+        if options.config.members.get(key).is_none() {
+          options.config.members.insert(
+            key.clone(),
+            WorkspaceMemberConfig {
+              dependencies: value.dependencies.clone(),
+              package_json_deps: value
+                .package_json
+                .as_ref()
+                .map(|p| p.dependencies.clone()),
+            },
+          );
+        }
       }
     }
 
@@ -711,7 +765,7 @@ mod tests {
       )
       .err()
       .unwrap().to_string(),
-      "Unable to parse contents of lockfile. Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
+      "Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
     );
   }
 

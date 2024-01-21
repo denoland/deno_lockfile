@@ -80,7 +80,7 @@ fn config_changes() {
   for mut spec in specs {
     eprintln!("Looking at {}...", spec.path.display());
     let mut config_file = Lockfile::with_lockfile_content(
-      spec.path.with_extension(".lock"),
+      spec.path.with_extension("lock"),
       &spec.original_text.text,
       false,
     )
@@ -94,6 +94,8 @@ fn config_changes() {
       .unwrap()
       .into_workspace_config();
       config_file.set_workspace_config(SetWorkspaceConfigOptions {
+        no_config: false,
+        no_npm: false,
         config: config.clone(),
         nv_to_jsr_url,
       });
@@ -107,6 +109,8 @@ fn config_changes() {
       // now try resetting it and the flag should remain the same
       config_file.has_content_changed = false;
       config_file.set_workspace_config(SetWorkspaceConfigOptions {
+        no_config: false,
+        no_npm: false,
         config: config.clone(),
         nv_to_jsr_url,
       });
@@ -141,6 +145,8 @@ fn adding_workspace_does_not_cause_content_changes() {
 
     assert!(!lockfile.has_content_changed);
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
+      no_config: false,
+      no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
           dependencies: Some(BTreeSet::from(
@@ -161,6 +167,8 @@ fn adding_workspace_does_not_cause_content_changes() {
       Lockfile::new(PathBuf::from("./deno.lock"), true).unwrap();
     lockfile.has_content_changed = true;
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
+      no_config: false,
+      no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
           dependencies: Some(BTreeSet::from([
@@ -186,6 +194,8 @@ fn adding_workspace_does_not_cause_content_changes() {
 
     assert!(!lockfile.has_content_changed);
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
+      no_config: false,
+      no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
           dependencies: Some(BTreeSet::from(
