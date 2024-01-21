@@ -96,8 +96,8 @@ Actual: {actual}
 Expected: {expected}
 
 This could be caused by:
-* the lock file may be corrupt
-* the source itself may be corrupt
+  * the lock file may be corrupt
+  * the source itself may be corrupt
 
 Use \"--lock-write\" flag to regenerate the lockfile at \"{filename}\".",
 )]
