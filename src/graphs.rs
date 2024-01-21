@@ -74,9 +74,9 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
         content.specifiers.len(),
       );
     // collect the specifiers to version mappings
-    let mut packages = HashMap::with_capacity(
-      content.specifiers.len() + content.jsr.len() + content.npm.len(),
-    );
+    let package_count =
+      content.specifiers.len() + content.jsr.len() + content.npm.len();
+    let mut packages = HashMap::with_capacity(package_count);
     for (key, value) in content.specifiers {
       if let Some(value) = value.strip_prefix("npm:") {
         root_packages.insert(
@@ -137,7 +137,8 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
 
     // trace every root identifier through the graph finding all corresponding packages
     while let Some(root_id) = root_ids.pop() {
-      let mut pending = VecDeque::from([root_id.clone()]);
+      let mut pending = VecDeque::with_capacity(package_count);
+      pending.push_back(root_id.clone());
       while let Some(id) = pending.pop_back() {
         if let Some(package) = packages.get_mut(&id) {
           match package {
