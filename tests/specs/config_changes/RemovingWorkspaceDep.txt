@@ -648,9 +648,7 @@
       "jsr:@dsherret/dax"
     ],
     "members": {
-      "package_a": {
-        "dependencies": []
-      }
+      "package_a": {}
     }
   }
 }

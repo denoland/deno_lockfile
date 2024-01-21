@@ -41,8 +41,5 @@
 # output
 {
   "version": "3",
-  "remote": {},
-  "workspace": {
-    "dependencies": []
-  }
+  "remote": {}
 }

@@ -662,8 +662,5 @@
   },
   "remote": {
     "https://jsr.io/@zome_unreferenced/package/mod.ts": "111ba1b46147804eaf8fa233f78d4c04fedb7b36a0b44374c8cbbaa6bbfad639"
-  },
-  "workspace": {
-    "dependencies": []
   }
 }

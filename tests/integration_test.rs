@@ -30,17 +30,16 @@ fn config_changes() {
     dependencies: BTreeSet<String>,
   }
 
-  #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+  #[derive(Debug, Default, Clone, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
   struct WorkspaceMemberConfigContent {
     #[serde(default)]
-    dependencies: Option<BTreeSet<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    dependencies: BTreeSet<String>,
     #[serde(default)]
-    package_json: Option<LockfilePackageJsonContent>,
+    package_json: LockfilePackageJsonContent,
   }
 
-  #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+  #[derive(Debug, Default, Clone, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
   struct WorkspaceConfigContent {
     #[serde(default, flatten)]
@@ -54,7 +53,7 @@ fn config_changes() {
       WorkspaceConfig {
         root: WorkspaceMemberConfig {
           dependencies: self.root.dependencies,
-          package_json_deps: self.root.package_json.map(|p| p.dependencies),
+          package_json_deps: self.root.package_json.dependencies,
         },
         members: self
           .members
@@ -64,7 +63,7 @@ fn config_changes() {
               k,
               WorkspaceMemberConfig {
                 dependencies: v.dependencies,
-                package_json_deps: v.package_json.map(|p| p.dependencies),
+                package_json_deps: v.package_json.dependencies,
               },
             )
           })
@@ -151,10 +150,8 @@ fn adding_workspace_does_not_cause_content_changes() {
       no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: Some(BTreeSet::from(
-            ["jsr:@scope/package".to_string()],
-          )),
-          package_json_deps: None,
+          dependencies: BTreeSet::from(["jsr:@scope/package".to_string()]),
+          package_json_deps: Default::default(),
         },
         members: BTreeMap::new(),
       },
@@ -173,10 +170,8 @@ fn adding_workspace_does_not_cause_content_changes() {
       no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: Some(BTreeSet::from([
-            "jsr:@scope/package2".to_string()
-          ])),
-          package_json_deps: None,
+          dependencies: BTreeSet::from(["jsr:@scope/package2".to_string()]),
+          package_json_deps: Default::default(),
         },
         members: BTreeMap::new(),
       },
@@ -200,10 +195,8 @@ fn adding_workspace_does_not_cause_content_changes() {
       no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: Some(BTreeSet::from(
-            ["jsr:@scope/package".to_string()],
-          )),
-          package_json_deps: None,
+          dependencies: BTreeSet::from(["jsr:@scope/package".to_string()]),
+          package_json_deps: Default::default(),
         },
         members: BTreeMap::new(),
       },

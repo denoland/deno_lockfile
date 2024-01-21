@@ -51,9 +51,9 @@ pub struct WorkspaceConfig {
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceMemberConfig {
   #[serde(default)]
-  pub dependencies: Option<BTreeSet<String>>,
+  pub dependencies: BTreeSet<String>,
   #[serde(default)]
-  pub package_json_deps: Option<BTreeSet<String>>,
+  pub package_json_deps: BTreeSet<String>,
 }
 
 pub struct NpmPackageLockfileInfo {
@@ -173,32 +173,38 @@ impl PackagesContent {
 #[serde(rename_all = "camelCase")]
 struct LockfilePackageJsonContent {
   #[serde(default)]
+  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
   dependencies: BTreeSet<String>,
+}
+
+impl LockfilePackageJsonContent {
+  pub fn is_empty(&self) -> bool {
+    self.dependencies.is_empty()
+  }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceMemberConfigContent {
+  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
   #[serde(default)]
-  dependencies: Option<BTreeSet<String>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  dependencies: BTreeSet<String>,
+  #[serde(skip_serializing_if = "LockfilePackageJsonContent::is_empty")]
   #[serde(default)]
-  package_json: Option<LockfilePackageJsonContent>,
+  package_json: LockfilePackageJsonContent,
 }
 
 impl WorkspaceMemberConfigContent {
   pub fn is_empty(&self) -> bool {
-    self.dependencies.is_none() && self.package_json.is_none()
+    self.dependencies.is_empty() && self.package_json.is_empty()
   }
 
   pub fn dep_reqs(&self) -> impl Iterator<Item = &String> {
     self
       .package_json
-      .as_ref()
-      .map(|s| s.dependencies.iter())
-      .into_iter()
-      .chain(self.dependencies.as_ref().map(|s| s.iter()))
-      .flatten()
+      .dependencies
+      .iter()
+      .chain(self.dependencies.iter())
   }
 }
 
@@ -362,93 +368,65 @@ impl Lockfile {
       current: &mut WorkspaceMemberConfigContent,
       new: WorkspaceMemberConfig,
     ) {
-      if let Some(new_deps) = new.dependencies {
-        match &mut current.dependencies {
-          Some(current_deps) => {
-            if new_deps != *current_deps {
-              let old_deps = std::mem::replace(current_deps, new_deps);
+      if new.dependencies != current.dependencies {
+        let old_deps =
+          std::mem::replace(&mut current.dependencies, new.dependencies);
 
-              removed_deps.extend(old_deps);
+        removed_deps.extend(old_deps);
 
-              *has_content_changed = true;
-            }
-          }
-          None => {
-            current.dependencies = Some(new_deps);
-            *has_content_changed = true;
-          }
-        }
-      } else if let Some(deps) = current.dependencies.take() {
-        removed_deps.extend(deps);
         *has_content_changed = true;
       }
 
-      if let Some(new_package_json_deps) = new.package_json_deps {
-        match &mut current.package_json {
-          Some(current_package_json) => {
-            let current_package_json_deps =
-              &mut current_package_json.dependencies;
-            if new_package_json_deps != *current_package_json_deps {
-              // update self.content.package_json
-              let old_package_json_deps = std::mem::replace(
-                current_package_json_deps,
-                new_package_json_deps,
-              );
+      if new.package_json_deps != current.package_json.dependencies {
+        // update self.content.package_json
+        let old_package_json_deps = std::mem::replace(
+          &mut current.package_json.dependencies,
+          new.package_json_deps,
+        );
 
-              removed_deps.extend(old_package_json_deps);
+        removed_deps.extend(old_package_json_deps);
 
-              *has_content_changed = true;
-            }
-          }
-          None => {
-            current.package_json = Some(LockfilePackageJsonContent {
-              dependencies: new_package_json_deps,
-            });
-            *has_content_changed = true;
-          }
-        }
-      } else if let Some(current_package_json) = current.package_json.take() {
-        removed_deps.extend(current_package_json.dependencies);
         *has_content_changed = true;
       }
     }
 
     // if specified, don't modify the package.json dependencies
     if options.no_npm || options.no_config {
-      if options.config.root.package_json_deps.is_none() {
+      if options.config.root.package_json_deps.is_empty() {
         options.config.root.package_json_deps = self
           .content
           .workspace
           .root
           .package_json
-          .as_ref()
-          .map(|p| p.dependencies.clone());
+          .dependencies
+          .clone();
       }
       for (key, value) in options.config.members.iter_mut() {
-        if value.package_json_deps.is_none() {
+        if value.package_json_deps.is_empty() {
           value.package_json_deps = self
             .content
             .workspace
             .members
             .get(key)
-            .and_then(|m| m.package_json.as_ref())
-            .map(|p| p.dependencies.clone());
+            .map(|m| m.package_json.dependencies.clone())
+            .unwrap_or_default();
         }
       }
     }
     if options.no_config {
-      if options.config.root.dependencies.is_none() {
+      if options.config.root.dependencies.is_empty() {
         options.config.root.dependencies =
           self.content.workspace.root.dependencies.clone();
       }
       for (key, value) in options.config.members.iter_mut() {
-        if value.dependencies.is_none() {
+        if value.dependencies.is_empty() {
           value.dependencies = self
             .content
             .workspace
             .members
             .get(key)
-            .and_then(|m| m.dependencies.clone());
+            .map(|m| m.dependencies.clone())
+            .unwrap_or_default();
         }
       }
       for (key, value) in self.content.workspace.members.iter() {
@@ -457,10 +435,7 @@ impl Lockfile {
             key.clone(),
             WorkspaceMemberConfig {
               dependencies: value.dependencies.clone(),
-              package_json_deps: value
-                .package_json
-                .as_ref()
-                .map(|p| p.dependencies.clone()),
+              package_json_deps: value.package_json.dependencies.clone(),
             },
           );
         }
