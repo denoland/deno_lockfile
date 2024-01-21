@@ -22,9 +22,17 @@ use crate::graphs::LockfilePackageGraph;
 
 pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
   pub config: WorkspaceConfig,
-  /// If the user is running with --no-config
+  /// Maintains deno.json dependencies and workspace config
+  /// regardless of the `config` options provided.
+  ///
+  /// Ex. the CLI sets this to `true` when someone runs a
+  /// one-off script with `--no-config`.
   pub no_config: bool,
-  /// If the user is running with --no-npm, we don't want to clear out the package.json
+  /// Maintains package.json dependencies regardless of the
+  /// `config` options provided.
+  ///
+  /// Ex. the CLI sets this to `true` when someone runs a
+  /// one-off script with `--no-npm`.
   pub no_npm: bool,
   /// Gives a name and version from JSR (ex. `@scope/package@1.0.0`)
   /// and expects a URL to the JSR package. This will then be used to
