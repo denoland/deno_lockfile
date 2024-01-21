@@ -74,7 +74,9 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
         content.specifiers.len(),
       );
     // collect the specifiers to version mappings
-    let mut packages = HashMap::new();
+    let mut packages = HashMap::with_capacity(
+      content.specifiers.len() + content.jsr.len() + content.npm.len(),
+    );
     for (key, value) in content.specifiers {
       if let Some(value) = value.strip_prefix("npm:") {
         root_packages.insert(
