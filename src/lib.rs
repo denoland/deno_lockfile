@@ -1,17 +1,60 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
 mod error;
-pub use error::LockfileError as Error;
+mod graphs;
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::io::Write;
+use std::path::PathBuf;
 
 use ring::digest;
 use serde::Deserialize;
 use serde::Serialize;
-use std::path::PathBuf;
 
 mod transforms;
+
+pub use error::LockfileError as Error;
+use thiserror::Error;
+
+use crate::graphs::LockfilePackageGraph;
+
+pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
+  pub config: WorkspaceConfig,
+  /// Maintains deno.json dependencies and workspace config
+  /// regardless of the `config` options provided.
+  ///
+  /// Ex. the CLI sets this to `true` when someone runs a
+  /// one-off script with `--no-config`.
+  pub no_config: bool,
+  /// Maintains package.json dependencies regardless of the
+  /// `config` options provided.
+  ///
+  /// Ex. the CLI sets this to `true` when someone runs a
+  /// one-off script with `--no-npm`.
+  pub no_npm: bool,
+  /// Gives a name and version from JSR (ex. `@scope/package@1.0.0`)
+  /// and expects a URL to the JSR package. This will then be used to
+  /// remove items from the "remotes" for removed packages.
+  pub nv_to_jsr_url: F,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+  #[serde(flatten)]
+  pub root: WorkspaceMemberConfig,
+  #[serde(default)]
+  pub members: BTreeMap<String, WorkspaceMemberConfig>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceMemberConfig {
+  #[serde(default)]
+  pub dependencies: BTreeSet<String>,
+  #[serde(default)]
+  pub package_json_deps: BTreeSet<String>,
+}
 
 pub struct NpmPackageLockfileInfo {
   pub display_id: String,
@@ -39,16 +82,31 @@ fn gen_checksum(v: &[impl AsRef<[u8]>]) -> String {
   out.join("")
 }
 
-#[derive(Debug)]
-pub struct LockfileError(String);
-
-impl std::fmt::Display for LockfileError {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    f.write_str(&self.0)
-  }
+#[derive(Debug, Error)]
+pub enum LockfileError {
+  #[error(transparent)]
+  IntegrityCheckFailed(#[from] IntegrityCheckFailedError),
 }
 
-impl std::error::Error for LockfileError {}
+#[derive(Debug, Error)]
+#[error("Integrity check failed for npm package: \"{package_display_id}\". Unable to verify that the package
+is the same as when the lockfile was generated.
+
+Actual: {actual}
+Expected: {expected}
+
+This could be caused by:
+  * the lock file may be corrupt
+  * the source itself may be corrupt
+
+Use \"--lock-write\" flag to regenerate the lockfile at \"{filename}\".",
+)]
+pub struct IntegrityCheckFailedError {
+  pub package_display_id: String,
+  pub actual: String,
+  pub expected: String,
+  pub filename: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
@@ -56,18 +114,40 @@ pub struct NpmPackageInfo {
   pub dependencies: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+pub struct JsrPackageInfo {
+  /// List of package requirements found in the dependency.
+  ///
+  /// This is used to tell when a package can be removed from the lockfile.
+  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+  #[serde(default)]
+  pub dependencies: BTreeSet<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Hash)]
 pub struct PackagesContent {
   /// Mapping between requests for deno specifiers and resolved packages, eg.
   /// {
-  ///   "deno:path": "deno:@std/path@1.0.0",
-  ///   "deno:ts-morph@11": "npm:ts-morph@11.0.0",
-  ///   "deno:@foo/bar@^2.1": "deno:@foo/bar@2.1.3",
+  ///   "jsr:@foo/bar@^2.1": "jsr:@foo/bar@2.1.3",
   ///   "npm:@ts-morph/common@^11": "npm:@ts-morph/common@11.0.0",
   /// }
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub specifiers: BTreeMap<String, String>,
+
+  /// Mapping between resolved jsr specifiers and their associated info, eg.
+  /// {
+  ///   "@oak/oak@12.6.3": {
+  ///     "dependencies": [
+  ///       "jsr:@std/bytes@0.210",
+  ///       // ...etc...
+  ///       "npm:path-to-regexpr@^6.2"
+  ///     ]
+  ///   }
+  /// }
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub jsr: BTreeMap<String, JsrPackageInfo>,
 
   /// Mapping between resolved npm specifiers and their associated info, eg.
   /// {
@@ -89,7 +169,70 @@ impl PackagesContent {
   }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+struct LockfilePackageJsonContent {
+  #[serde(default)]
+  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+  dependencies: BTreeSet<String>,
+}
+
+impl LockfilePackageJsonContent {
+  pub fn is_empty(&self) -> bool {
+    self.dependencies.is_empty()
+  }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceMemberConfigContent {
+  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+  #[serde(default)]
+  dependencies: BTreeSet<String>,
+  #[serde(skip_serializing_if = "LockfilePackageJsonContent::is_empty")]
+  #[serde(default)]
+  package_json: LockfilePackageJsonContent,
+}
+
+impl WorkspaceMemberConfigContent {
+  pub fn is_empty(&self) -> bool {
+    self.dependencies.is_empty() && self.package_json.is_empty()
+  }
+
+  pub fn dep_reqs(&self) -> impl Iterator<Item = &String> {
+    self
+      .package_json
+      .dependencies
+      .iter()
+      .chain(self.dependencies.iter())
+  }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceConfigContent {
+  #[serde(default, flatten)]
+  root: WorkspaceMemberConfigContent,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  members: BTreeMap<String, WorkspaceMemberConfigContent>,
+}
+
+impl WorkspaceConfigContent {
+  pub fn is_empty(&self) -> bool {
+    self.root.is_empty() && self.members.is_empty()
+  }
+
+  fn get_all_dep_reqs(&self) -> impl Iterator<Item = &String> {
+    self
+      .root
+      .dep_reqs()
+      .chain(self.members.values().flat_map(|m| m.dep_reqs()))
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
   version: String,
   // order these based on auditability
@@ -101,6 +244,9 @@ pub struct LockfileContent {
   pub redirects: BTreeMap<String, String>,
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
   remote: BTreeMap<String, String>,
+  #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
+  #[serde(default)]
+  workspace: WorkspaceConfigContent,
 }
 
 impl LockfileContent {
@@ -110,7 +256,15 @@ impl LockfileContent {
       packages: Default::default(),
       redirects: Default::default(),
       remote: BTreeMap::new(),
+      workspace: Default::default(),
     }
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.packages.is_empty()
+      && self.redirects.is_empty()
+      && self.remote.is_empty()
+      && self.workspace.is_empty()
   }
 }
 
@@ -175,25 +329,20 @@ impl Lockfile {
     }
 
     let value: serde_json::Map<String, serde_json::Value> =
-      serde_json::from_str(content)
-        .map_err(|_| Error::ParseError(filename.display().to_string()))?;
+      serde_json::from_str(content).map_err(|err| {
+        Error::ParseError(filename.display().to_string(), err)
+      })?;
     let version = value.get("version").and_then(|v| v.as_str());
     let value = match version {
       Some("3") => value,
       Some("2") => transforms::transform2_to_3(value),
       None => transforms::transform2_to_3(transforms::transform1_to_2(value)),
       Some(version) => {
-        return Err(Error::ParseError(format!(
-          "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile.",
-          version
-        )))
+        return Err(Error::UnsupportedVersion(version.to_string()));
       }
     };
     let content = serde_json::from_value::<LockfileContent>(value.into())
-      .map_err(|err| {
-        eprintln!("ERROR: {:#}", err);
-        Error::ParseError(filename.display().to_string())
-      })?;
+      .map_err(|err| Error::ParseError(filename.display().to_string(), err))?;
 
     Ok(Lockfile {
       overwrite,
@@ -207,6 +356,177 @@ impl Lockfile {
     let mut json_string = serde_json::to_string_pretty(&self.content).unwrap();
     json_string.push('\n'); // trailing newline in file
     json_string
+  }
+
+  pub fn set_workspace_config<F: Fn(&str) -> Option<String>>(
+    &mut self,
+    mut options: SetWorkspaceConfigOptions<F>,
+  ) {
+    fn update_workspace_member(
+      has_content_changed: &mut bool,
+      removed_deps: &mut HashSet<String>,
+      current: &mut WorkspaceMemberConfigContent,
+      new: WorkspaceMemberConfig,
+    ) {
+      if new.dependencies != current.dependencies {
+        let old_deps =
+          std::mem::replace(&mut current.dependencies, new.dependencies);
+
+        removed_deps.extend(old_deps);
+
+        *has_content_changed = true;
+      }
+
+      if new.package_json_deps != current.package_json.dependencies {
+        // update self.content.package_json
+        let old_package_json_deps = std::mem::replace(
+          &mut current.package_json.dependencies,
+          new.package_json_deps,
+        );
+
+        removed_deps.extend(old_package_json_deps);
+
+        *has_content_changed = true;
+      }
+    }
+
+    // if specified, don't modify the package.json dependencies
+    if options.no_npm || options.no_config {
+      if options.config.root.package_json_deps.is_empty() {
+        options.config.root.package_json_deps = self
+          .content
+          .workspace
+          .root
+          .package_json
+          .dependencies
+          .clone();
+      }
+      for (key, value) in options.config.members.iter_mut() {
+        if value.package_json_deps.is_empty() {
+          value.package_json_deps = self
+            .content
+            .workspace
+            .members
+            .get(key)
+            .map(|m| m.package_json.dependencies.clone())
+            .unwrap_or_default();
+        }
+      }
+    }
+    if options.no_config {
+      if options.config.root.dependencies.is_empty() {
+        options.config.root.dependencies =
+          self.content.workspace.root.dependencies.clone();
+      }
+      for (key, value) in options.config.members.iter_mut() {
+        if value.dependencies.is_empty() {
+          value.dependencies = self
+            .content
+            .workspace
+            .members
+            .get(key)
+            .map(|m| m.dependencies.clone())
+            .unwrap_or_default();
+        }
+      }
+      for (key, value) in self.content.workspace.members.iter() {
+        if options.config.members.get(key).is_none() {
+          options.config.members.insert(
+            key.clone(),
+            WorkspaceMemberConfig {
+              dependencies: value.dependencies.clone(),
+              package_json_deps: value.package_json.dependencies.clone(),
+            },
+          );
+        }
+      }
+    }
+
+    // If the lockfile is empty, it's most likely not created yet and so
+    // we don't want this information being added to the lockfile to cause
+    // a lockfile to be created. If this is the case, revert the lockfile back
+    // to !self.has_content_changed after populating it with this information
+    let allow_content_changed =
+      self.has_content_changed || !self.content.is_empty();
+    let old_deps = self
+      .content
+      .workspace
+      .get_all_dep_reqs()
+      .map(|s| s.to_string())
+      .collect::<HashSet<_>>();
+    let mut removed_deps = HashSet::new();
+
+    // set the root
+    update_workspace_member(
+      &mut self.has_content_changed,
+      &mut removed_deps,
+      &mut self.content.workspace.root,
+      options.config.root,
+    );
+
+    // now go through the workspaces
+    let mut unhandled_members = self
+      .content
+      .workspace
+      .members
+      .keys()
+      .cloned()
+      .collect::<HashSet<_>>();
+    for (member_name, new_member) in options.config.members {
+      unhandled_members.remove(&member_name);
+      let current_member = self
+        .content
+        .workspace
+        .members
+        .entry(member_name)
+        .or_default();
+      update_workspace_member(
+        &mut self.has_content_changed,
+        &mut removed_deps,
+        current_member,
+        new_member,
+      );
+    }
+
+    for member in unhandled_members {
+      if let Some(member) = self.content.workspace.members.remove(&member) {
+        removed_deps.extend(member.dep_reqs().cloned());
+        self.has_content_changed = true;
+      }
+    }
+
+    // update the removed deps to keep what's still found in the workspace
+    for dep in self.content.workspace.get_all_dep_reqs() {
+      removed_deps.remove(dep);
+    }
+
+    if !removed_deps.is_empty() {
+      let packages = std::mem::take(&mut self.content.packages);
+      let remotes = std::mem::take(&mut self.content.remote);
+
+      // create the graph
+      let mut graph = LockfilePackageGraph::from_lockfile(
+        packages,
+        remotes,
+        old_deps.iter().map(|dep| dep.as_str()),
+        options.nv_to_jsr_url,
+      );
+
+      // remove the packages
+      graph.remove_root_packages(removed_deps.into_iter());
+
+      // now populate the graph back into the packages
+      graph.populate_packages(
+        &mut self.content.packages,
+        &mut self.content.remote,
+      );
+    }
+
+    if !allow_content_changed {
+      // revert it back so this change doesn't by itself cause
+      // a lockfile to be created.
+      self.has_content_changed = false;
+    }
   }
 
   // Synchronize lock file to disk - noop if --lock-write file is not specified.
@@ -281,18 +601,17 @@ impl Lockfile {
     if let Some(package_info) =
       self.content.packages.npm.get(&package.serialized_id)
     {
-      if package_info.integrity.as_str() != package.integrity {
-        return Err(LockfileError(format!(
-            "Integrity check failed for npm package: \"{}\". Unable to verify that the package
-is the same as when the lockfile was generated.
-
-This could be caused by:
-  * the lock file may be corrupt
-  * the source itself may be corrupt
-
-Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
-            package.display_id, self.filename.display()
-          )));
+      let actual = package_info.integrity.as_str();
+      let expected = &package.integrity;
+      if actual != expected {
+        return Err(LockfileError::IntegrityCheckFailed(
+          IntegrityCheckFailedError {
+            package_display_id: package.display_id,
+            filename: self.filename.display().to_string(),
+            actual: actual.to_string(),
+            expected: expected.to_string(),
+          },
+        ));
       }
     } else {
       self.insert_npm_package(package);
@@ -339,7 +658,30 @@ Use \"--lock-write\" flag to regenerate the lockfile at \"{}\".",
     }
   }
 
+  pub fn insert_package_deps(
+    &mut self,
+    name: String,
+    deps: impl Iterator<Item = String>,
+  ) {
+    let mut deps = deps.peekable();
+    if deps.peek().is_none() {
+      return; // skip, don't bother adding
+    }
+
+    let package = self.content.packages.jsr.entry(name).or_default();
+    let start_count = package.dependencies.len();
+    package.dependencies.extend(deps);
+    let end_count = package.dependencies.len();
+    if start_count != end_count {
+      self.has_content_changed = true;
+    }
+  }
+
   pub fn insert_redirect(&mut self, from: String, to: String) {
+    if from.starts_with("jsr:") {
+      return;
+    }
+
     let maybe_prev = self.content.redirects.get(&from);
 
     if maybe_prev.is_none() || maybe_prev != Some(&to) {
@@ -406,7 +748,7 @@ mod tests {
       )
       .err()
       .unwrap().to_string(),
-      "Unable to parse contents of lockfile. Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
+      "Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
     );
   }
 
@@ -680,14 +1022,14 @@ mod tests {
   }
 
   #[test]
-  fn test_insert_deno() {
+  fn test_insert_jsr() {
     let mut lockfile = Lockfile::with_lockfile_content(
       PathBuf::from("/foo/deno.lock"),
       r#"{
   "version": "3",
   "packages": {
     "specifiers": {
-      "deno:path": "deno:@std/path@0.75.0"
+      "jsr:path": "jsr:@std/path@0.75.0"
     }
   },
   "remote": {}
@@ -696,18 +1038,18 @@ mod tests {
     )
     .unwrap();
     lockfile.insert_package_specifier(
-      "deno:path".to_string(),
-      "deno:@std/path@0.75.0".to_string(),
+      "jsr:path".to_string(),
+      "jsr:@std/path@0.75.0".to_string(),
     );
     assert!(!lockfile.has_content_changed);
     lockfile.insert_package_specifier(
-      "deno:path".to_string(),
-      "deno:@std/path@0.75.1".to_string(),
+      "jsr:path".to_string(),
+      "jsr:@std/path@0.75.1".to_string(),
     );
     assert!(lockfile.has_content_changed);
     lockfile.insert_package_specifier(
-      "deno:@foo/bar@^2".to_string(),
-      "deno:@foo/bar@2.1.2".to_string(),
+      "jsr:@foo/bar@^2".to_string(),
+      "jsr:@foo/bar@2.1.2".to_string(),
     );
     assert_eq!(
       lockfile.as_json_string(),
@@ -715,8 +1057,8 @@ mod tests {
   "version": "3",
   "packages": {
     "specifiers": {
-      "deno:@foo/bar@^2": "deno:@foo/bar@2.1.2",
-      "deno:path": "deno:@std/path@0.75.1"
+      "jsr:@foo/bar@^2": "jsr:@foo/bar@2.1.2",
+      "jsr:path": "jsr:@std/path@0.75.1"
     }
   },
   "remote": {}
