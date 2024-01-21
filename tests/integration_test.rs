@@ -93,9 +93,11 @@ fn config_changes() {
       )
       .unwrap()
       .into_workspace_config();
+      let no_npm = change_and_output.change.title.contains("--no-npm");
+      let no_config = change_and_output.change.title.contains("--no-config");
       config_file.set_workspace_config(SetWorkspaceConfigOptions {
-        no_config: false,
-        no_npm: false,
+        no_config,
+        no_npm,
         config: config.clone(),
         nv_to_jsr_url,
       });
@@ -109,8 +111,8 @@ fn config_changes() {
       // now try resetting it and the flag should remain the same
       config_file.has_content_changed = false;
       config_file.set_workspace_config(SetWorkspaceConfigOptions {
-        no_config: false,
-        no_npm: false,
+        no_config,
+        no_npm,
         config: config.clone(),
         nv_to_jsr_url,
       });
