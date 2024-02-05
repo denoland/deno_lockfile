@@ -141,18 +141,18 @@ fn config_changes() {
 
 fn verify_packages_content(packages: &PackagesContent) {
   // verify the specifiers
-  for (_req, id) in &packages.specifiers {
+  for id in packages.specifiers.values() {
     if let Some(npm_id) = id.strip_prefix("npm:") {
       assert!(packages.npm.contains_key(npm_id), "Missing: {}", id);
-    } else if let Some(_) = id.strip_prefix("jsr:") {
-      // todo(dsherret): actually include them here because we need to lock the manifest version
+    } else if id.strip_prefix("jsr:").is_some() {
       // ignore jsr packages because they won't be in the lockfile when they don't have dependencies
+      // todo(dsherret): actually include them here because we need to lock the manifest version
     } else {
       panic!("Invalid package id: {}", id);
     }
   }
   for (pkg_id, package) in &packages.npm {
-    for (_name, dep_id) in &package.dependencies {
+    for dep_id in package.dependencies.values() {
       assert!(
         packages.npm.contains_key(dep_id),
         "Missing '{}' dep in '{}'",
