@@ -94,11 +94,12 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
     }
 
     for (nv, content_package) in content.jsr {
-      let id = LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone()));
       let new_deps = &content_package.dependencies;
-      let package = packages.entry(id).or_insert_with(|| {
-        LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default())
-      });
+      let package = packages
+        .entry(LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())))
+        .or_insert_with(|| {
+          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default())
+        });
       match package {
         LockfileGraphPackage::Jsr(package) => {
           package.dependencies = new_deps
@@ -110,9 +111,8 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
       }
     }
     for (id, package) in content.npm {
-      let id = LockfilePkgId::Npm(LockfileNpmPackageId(id.clone()));
       packages.insert(
-        id,
+        LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
           root_ids: Default::default(),
           integrity: package.integrity.clone(),
@@ -129,8 +129,9 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
 
     let mut root_ids = old_config_file_packages
       .filter_map(|value| {
-        let req = LockfilePkgReq(value.to_string());
-        root_packages.get(&req).cloned()
+        root_packages
+          .get(&LockfilePkgReq(value.to_string()))
+          .cloned()
       })
       .collect::<Vec<_>>();
     let mut unseen_root_pkg_ids =
