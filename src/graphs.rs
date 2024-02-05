@@ -94,12 +94,11 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
     }
 
     for (nv, content_package) in content.jsr {
+      let id = LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone()));
       let new_deps = &content_package.dependencies;
-      let package = packages
-        .entry(LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())))
-        .or_insert_with(|| {
-          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default())
-        });
+      let package = packages.entry(id).or_insert_with(|| {
+        LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default())
+      });
       match package {
         LockfileGraphPackage::Jsr(package) => {
           package.dependencies = new_deps
@@ -111,8 +110,9 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
       }
     }
     for (id, package) in content.npm {
+      let id = LockfilePkgId::Npm(LockfileNpmPackageId(id.clone()));
       packages.insert(
-        LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
+        id,
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
           root_ids: Default::default(),
           integrity: package.integrity.clone(),
@@ -129,17 +129,19 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
 
     let mut root_ids = old_config_file_packages
       .filter_map(|value| {
-        root_packages
-          .get(&LockfilePkgReq(value.to_string()))
-          .cloned()
+        let req = LockfilePkgReq(value.to_string());
+        root_packages.get(&req).cloned()
       })
       .collect::<Vec<_>>();
+    let mut unseen_root_pkg_ids =
+      root_packages.values().collect::<HashSet<_>>();
 
     // trace every root identifier through the graph finding all corresponding packages
     while let Some(root_id) = root_ids.pop() {
       let mut pending = VecDeque::with_capacity(package_count);
       pending.push_back(root_id.clone());
       while let Some(id) = pending.pop_back() {
+        unseen_root_pkg_ids.remove(&id);
         if let Some(package) = packages.get_mut(&id) {
           match package {
             LockfileGraphPackage::Jsr(package) => {
@@ -160,6 +162,10 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
             }
           }
         }
+      }
+
+      if root_ids.is_empty() {
+        root_ids.extend(unseen_root_pkg_ids.drain().cloned());
       }
     }
 
