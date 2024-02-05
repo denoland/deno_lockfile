@@ -165,6 +165,8 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
       }
 
       if root_ids.is_empty() {
+        // Certain root package specifiers might not be referenced or transitively
+        // referenced in the config file. For those cases, keep them in the config file.
         root_ids.extend(unseen_root_pkg_ids.drain().cloned());
       }
     }

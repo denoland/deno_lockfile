@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use deno_lockfile::PackagesContent;
 use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
 use pretty_assertions::assert_eq;
@@ -130,9 +131,34 @@ fn config_changes() {
           change_and_output.change.title,
         );
       }
+      verify_packages_content(&config_file.content.packages);
     }
     if is_update {
       std::fs::write(&spec.path, spec.emit()).unwrap();
+    }
+  }
+}
+
+fn verify_packages_content(packages: &PackagesContent) {
+  // verify the specifiers
+  for (_req, id) in &packages.specifiers {
+    if let Some(npm_id) = id.strip_prefix("npm:") {
+      assert!(packages.npm.contains_key(npm_id), "Missing: {}", id);
+    } else if let Some(_) = id.strip_prefix("jsr:") {
+      // todo(dsherret): actually include them here because we need to lock the manifest version
+      // ignore jsr packages because they won't be in the lockfile when they don't have dependencies
+    } else {
+      panic!("Invalid package id: {}", id);
+    }
+  }
+  for (pkg_id, package) in &packages.npm {
+    for (_name, dep_id) in &package.dependencies {
+      assert!(
+        packages.npm.contains_key(dep_id),
+        "Missing '{}' dep in '{}'",
+        pkg_id,
+        dep_id,
+      );
     }
   }
 }
