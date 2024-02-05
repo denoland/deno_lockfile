@@ -134,12 +134,15 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
           .cloned()
       })
       .collect::<Vec<_>>();
+    let mut unseen_root_pkg_ids =
+      root_packages.values().collect::<HashSet<_>>();
 
     // trace every root identifier through the graph finding all corresponding packages
     while let Some(root_id) = root_ids.pop() {
       let mut pending = VecDeque::with_capacity(package_count);
       pending.push_back(root_id.clone());
       while let Some(id) = pending.pop_back() {
+        unseen_root_pkg_ids.remove(&id);
         if let Some(package) = packages.get_mut(&id) {
           match package {
             LockfileGraphPackage::Jsr(package) => {
@@ -160,6 +163,12 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
             }
           }
         }
+      }
+
+      if root_ids.is_empty() {
+        // Certain root package specifiers might not be referenced or transitively
+        // referenced in the config file. For those cases, keep them in the config file.
+        root_ids.extend(unseen_root_pkg_ids.drain().cloned());
       }
     }
 
