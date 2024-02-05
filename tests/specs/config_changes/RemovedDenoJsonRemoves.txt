@@ -212,6 +212,9 @@
       "jsr:@scope/package_orphan": "jsr:@scope/package_orphan@0.0.1",
       "npm:ts-morph": "npm:ts-morph@21.0.1"
     },
+    "jsr": {
+      "@scope/package_orphan@0.0.1": {}
+    },
     "npm": {
       "@example/orphan": {
         "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==",

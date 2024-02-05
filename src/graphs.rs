@@ -32,11 +32,13 @@ impl LockfileNpmPackageId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct LockfilePkgReq(String);
 
+#[derive(Debug)]
 enum LockfileGraphPackage {
   Jsr(LockfileJsrGraphPackage),
   Npm(LockfileNpmGraphPackage),
 }
 
+#[derive(Debug)]
 struct LockfileNpmGraphPackage {
   /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
@@ -44,7 +46,7 @@ struct LockfileNpmGraphPackage {
   dependencies: BTreeMap<String, LockfileNpmPackageId>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct LockfileJsrGraphPackage {
   /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
@@ -286,21 +288,19 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
     for (id, package) in self.packages {
       match package {
         LockfileGraphPackage::Jsr(package) => {
-          if !package.dependencies.is_empty() {
-            packages.jsr.insert(
-              match id {
-                LockfilePkgId::Jsr(nv) => nv.0,
-                LockfilePkgId::Npm(_) => unreachable!(),
-              },
-              crate::JsrPackageInfo {
-                dependencies: package
-                  .dependencies
-                  .into_iter()
-                  .map(|req| req.0)
-                  .collect(),
-              },
-            );
-          }
+          packages.jsr.insert(
+            match id {
+              LockfilePkgId::Jsr(nv) => nv.0,
+              LockfilePkgId::Npm(_) => unreachable!(),
+            },
+            crate::JsrPackageInfo {
+              dependencies: package
+                .dependencies
+                .into_iter()
+                .map(|req| req.0)
+                .collect(),
+            },
+          );
         }
         LockfileGraphPackage::Npm(package) => {
           packages.npm.insert(

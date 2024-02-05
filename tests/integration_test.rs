@@ -144,9 +144,8 @@ fn verify_packages_content(packages: &PackagesContent) {
   for id in packages.specifiers.values() {
     if let Some(npm_id) = id.strip_prefix("npm:") {
       assert!(packages.npm.contains_key(npm_id), "Missing: {}", id);
-    } else if id.strip_prefix("jsr:").is_some() {
-      // ignore jsr packages because they won't be in the lockfile when they don't have dependencies
-      // todo(dsherret): actually include them here because we need to lock the manifest version
+    } else if let Some(jsr_id) = id.strip_prefix("jsr:") {
+      assert!(packages.jsr.contains_key(jsr_id), "Missing: {}", id);
     } else {
       panic!("Invalid package id: {}", id);
     }
@@ -159,6 +158,31 @@ fn verify_packages_content(packages: &PackagesContent) {
         pkg_id,
         dep_id,
       );
+    }
+  }
+  for (pkg_id, package) in &packages.jsr {
+    for req in &package.dependencies {
+      let dep_id = match packages.specifiers.get(req) {
+        Some(dep_id) => dep_id,
+        None => panic!("Missing specifier for '{}' in '{}'", req, pkg_id),
+      };
+      if let Some(npm_id) = dep_id.strip_prefix("npm:") {
+        assert!(
+          packages.npm.contains_key(npm_id),
+          "Missing: '{}' dep in '{}'",
+          dep_id,
+          pkg_id,
+        );
+      } else if let Some(jsr_id) = dep_id.strip_prefix("jsr:") {
+        assert!(
+          packages.jsr.contains_key(jsr_id),
+          "Missing: '{}' dep in '{}'",
+          dep_id,
+          pkg_id,
+        );
+      } else {
+        panic!("Invalid package id: {}", dep_id);
+      }
     }
   }
 }

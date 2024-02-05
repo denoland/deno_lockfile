@@ -419,6 +419,10 @@
           "jsr:@std/streams@0.210.0"
         ]
       },
+      "@dsherret/which@0.0.1": {},
+      "@std/assert@0.210.0": {},
+      "@std/bytes@0.210.0": {},
+      "@std/fmt@0.210.0": {},
       "@std/fs@0.210.0": {
         "dependencies": [
           "jsr:@std/assert@^0.210.0",
@@ -443,6 +447,8 @@
           "jsr:@std/io@^0.210.0"
         ]
       },
+      "@zome_unreferenced/package@0.1.0": {},
+      "@zome_unreferenced/package_b@0.1.0": {},
       "jsr:@zome_unreferenced/package@0.1.0": {
         "dependencies": [
           "jsr:@zome_unreferenced/package_b"
