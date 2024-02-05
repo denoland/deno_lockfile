@@ -24,7 +24,8 @@
         "dependencies": [
           "jsr:@scope/package_a"
         ]
-      }
+      },
+      "@scope/package_orphan@0.0.1": {}
     },
     "npm": {
       "@example/orphan": {
@@ -229,7 +230,8 @@
         "dependencies": [
           "jsr:@scope/package_a"
         ]
-      }
+      },
+      "@scope/package_orphan@0.0.1": {}
     },
     "npm": {
       "@example/orphan": {

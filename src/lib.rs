@@ -165,7 +165,7 @@ pub struct PackagesContent {
 
 impl PackagesContent {
   fn is_empty(&self) -> bool {
-    self.specifiers.is_empty() && self.npm.is_empty()
+    self.specifiers.is_empty() && self.npm.is_empty() && self.jsr.is_empty()
   }
 }
 

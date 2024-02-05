@@ -11,7 +11,8 @@
         "dependencies": [
           "jsr:@dsherret/which@0.0.1"
         ]
-      }
+      },
+      "@dsherret/which@0.0.1": {}
     }
   },
   "remote": {
@@ -49,7 +50,8 @@
         "dependencies": [
           "jsr:@dsherret/which@0.0.1"
         ]
-      }
+      },
+      "@dsherret/which@0.0.1": {}
     }
   },
   "remote": {
@@ -91,7 +93,8 @@
         "dependencies": [
           "jsr:@dsherret/which@0.0.1"
         ]
-      }
+      },
+      "@dsherret/which@0.0.1": {}
     }
   },
   "remote": {
