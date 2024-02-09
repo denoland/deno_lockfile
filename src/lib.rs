@@ -663,16 +663,17 @@ impl Lockfile {
     name: String,
     deps: impl Iterator<Item = String>,
   ) {
-    let mut deps = deps.peekable();
-    if deps.peek().is_none() {
-      return; // skip, don't bother adding
-    }
+    let mut is_new_insert = false;
+    let package = self.content.packages.jsr.entry(name).or_insert_with(|| {
+      is_new_insert = true;
+      Default::default()
+    });
 
-    let package = self.content.packages.jsr.entry(name).or_default();
     let start_count = package.dependencies.len();
     package.dependencies.extend(deps);
     let end_count = package.dependencies.len();
-    if start_count != end_count {
+
+    if is_new_insert || start_count != end_count {
       self.has_content_changed = true;
     }
   }
@@ -1117,5 +1118,33 @@ mod tests {
       )])
     );
     assert_eq!(lockfile.content.remote.len(), 2);
+  }
+
+  #[test]
+  fn insert_package_deps_changes_empty_insert() {
+    let content: &str = r#"{
+      "version": "2",
+      "remote": {}
+    }"#;
+    let file_path = PathBuf::from("lockfile.json");
+    let mut lockfile =
+      Lockfile::with_lockfile_content(file_path, content, false).unwrap();
+
+    assert!(!lockfile.has_content_changed);
+    lockfile.insert_package_deps("dep".to_string(), vec![].into_iter());
+    // has changed even though it was empty
+    assert!(lockfile.has_content_changed);
+
+    // now try inserting the same package
+    lockfile.has_content_changed = false;
+    lockfile.insert_package_deps("dep".to_string(), vec![].into_iter());
+    assert!(!lockfile.has_content_changed);
+
+    // now with new deps
+    lockfile.insert_package_deps(
+      "dep".to_string(),
+      vec!["dep2".to_string()].into_iter(),
+    );
+    assert!(lockfile.has_content_changed);
   }
 }
