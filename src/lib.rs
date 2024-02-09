@@ -678,7 +678,6 @@ impl Lockfile {
     package.dependencies.extend(deps);
     let end_count = package.dependencies.len();
 
-    // Update has_content_changed if there's a new insert or the dependencies count changed.
     if is_new_insert || start_count != end_count {
       self.has_content_changed = true;
     }
