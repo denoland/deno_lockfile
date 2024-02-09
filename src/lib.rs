@@ -664,15 +664,10 @@ impl Lockfile {
     deps: impl Iterator<Item = String>,
   ) {
     let mut is_new_insert = false;
-    let package = self
-      .content
-      .packages
-      .jsr
-      .entry(name)
-      .or_insert_with(|| {
-        is_new_insert = true;
-        Default::default()
-      });
+    let package = self.content.packages.jsr.entry(name).or_insert_with(|| {
+      is_new_insert = true;
+      Default::default()
+    });
 
     let start_count = package.dependencies.len();
     package.dependencies.extend(deps);
