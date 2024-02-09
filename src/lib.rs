@@ -668,7 +668,7 @@ impl Lockfile {
       .content
       .packages
       .jsr
-      .entry(name.clone())
+      .entry(name)
       .or_insert_with(|| {
         is_new_insert = true;
         Default::default()
