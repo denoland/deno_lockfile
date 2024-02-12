@@ -104,11 +104,13 @@ pub struct IntegrityCheckFailedError {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
   pub integrity: String,
+  // todo(dsherret): we should skip serializing this in a future lockfile version
   pub dependencies: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct JsrPackageInfo {
+  pub integrity: String,
   /// List of package requirements found in the dependency.
   ///
   /// This is used to tell when a package can be removed from the lockfile.
@@ -651,15 +653,19 @@ impl Lockfile {
     }
   }
 
-  pub fn insert_package_deps(
+  pub fn insert_package(
     &mut self,
     name: String,
+    integrity: String,
     deps: impl Iterator<Item = String>,
   ) {
     let mut is_new_insert = false;
     let package = self.content.packages.jsr.entry(name).or_insert_with(|| {
       is_new_insert = true;
-      Default::default()
+      JsrPackageInfo {
+        integrity,
+        dependencies: Default::default(),
+      }
     });
 
     let start_count = package.dependencies.len();
@@ -1124,18 +1130,27 @@ mod tests {
       Lockfile::with_lockfile_content(file_path, content, false).unwrap();
 
     assert!(!lockfile.has_content_changed);
-    lockfile.insert_package_deps("dep".to_string(), vec![].into_iter());
+    lockfile.insert_package(
+      "dep".to_string(),
+      "integrity".to_string(),
+      vec![].into_iter(),
+    );
     // has changed even though it was empty
     assert!(lockfile.has_content_changed);
 
     // now try inserting the same package
     lockfile.has_content_changed = false;
-    lockfile.insert_package_deps("dep".to_string(), vec![].into_iter());
+    lockfile.insert_package(
+      "dep".to_string(),
+      "integrity".to_string(),
+      vec![].into_iter(),
+    );
     assert!(!lockfile.has_content_changed);
 
     // now with new deps
-    lockfile.insert_package_deps(
+    lockfile.insert_package(
       "dep".to_string(),
+      "integrity".to_string(),
       vec!["dep2".to_string()].into_iter(),
     );
     assert!(lockfile.has_content_changed);

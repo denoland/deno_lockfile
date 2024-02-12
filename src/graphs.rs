@@ -46,10 +46,11 @@ struct LockfileNpmGraphPackage {
   dependencies: BTreeMap<String, LockfileNpmPackageId>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct LockfileJsrGraphPackage {
   /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
+  integrity: String,
   dependencies: BTreeSet<LockfilePkgReq>,
 }
 
@@ -88,30 +89,24 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
       } else if let Some(value) = value.strip_prefix("jsr:") {
         let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string()));
         root_packages.insert(LockfilePkgReq(key), nv.clone());
-        packages.insert(
-          nv,
-          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default()),
-        );
       }
     }
 
     for (nv, content_package) in content.jsr {
-      let new_deps = &content_package.dependencies;
-      let package = packages
-        .entry(LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())))
-        .or_insert_with(|| {
-          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default())
-        });
-      match package {
-        LockfileGraphPackage::Jsr(package) => {
-          package.dependencies = new_deps
+      packages.insert(
+        LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())),
+        LockfileGraphPackage::Jsr(LockfileJsrGraphPackage {
+          root_ids: Default::default(),
+          integrity: content_package.integrity.clone(),
+          dependencies: content_package
+            .dependencies
             .iter()
             .map(|req| LockfilePkgReq(req.clone()))
-            .collect();
-        }
-        LockfileGraphPackage::Npm(_) => unreachable!(),
-      }
+            .collect(),
+        }),
+      );
     }
+
     for (id, package) in content.npm {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
@@ -294,6 +289,7 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
               LockfilePkgId::Npm(_) => unreachable!(),
             },
             crate::JsrPackageInfo {
+              integrity: package.integrity.clone(),
               dependencies: package
                 .dependencies
                 .into_iter()
