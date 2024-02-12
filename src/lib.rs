@@ -9,13 +9,14 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 
-use ring::digest;
 use serde::Deserialize;
 use serde::Serialize;
 
 mod transforms;
 
 pub use error::LockfileError as Error;
+use sha2::Digest;
+use sha2::Sha256;
 use thiserror::Error;
 
 use crate::graphs::LockfilePackageGraph;
@@ -68,18 +69,10 @@ pub struct NpmPackageDependencyLockfileInfo {
   pub id: String,
 }
 
-fn gen_checksum(v: &[impl AsRef<[u8]>]) -> String {
-  let mut ctx = digest::Context::new(&digest::SHA256);
-  for src in v {
-    ctx.update(src.as_ref());
-  }
-  let digest = ctx.finish();
-  let out: Vec<String> = digest
-    .as_ref()
-    .iter()
-    .map(|byte| format!("{byte:02x}"))
-    .collect();
-  out.join("")
+fn gen_checksum(v: &[u8]) -> String {
+  let mut hasher = Sha256::new();
+  hasher.update(v);
+  format!("{:x}", hasher.finalize())
 }
 
 #[derive(Debug, Error)]
@@ -580,7 +573,7 @@ impl Lockfile {
   /// is not included, insert it.
   fn check_or_insert(&mut self, specifier: &str, code: &str) -> bool {
     if let Some(lockfile_checksum) = self.content.remote.get(specifier) {
-      let compiled_checksum = gen_checksum(&[code.as_bytes()]);
+      let compiled_checksum = gen_checksum(code.as_bytes());
       lockfile_checksum == &compiled_checksum
     } else {
       self.insert(specifier, code);
@@ -589,7 +582,7 @@ impl Lockfile {
   }
 
   fn insert(&mut self, specifier: &str, code: &str) {
-    let checksum = gen_checksum(&[code.as_bytes()]);
+    let checksum = gen_checksum(code.as_bytes());
     self.content.remote.insert(specifier.to_string(), checksum);
     self.has_content_changed = true;
   }
