@@ -82,7 +82,7 @@ pub enum LockfileError {
 }
 
 #[derive(Debug, Error)]
-#[error("Integrity check failed for npm package: \"{package_display_id}\". Unable to verify that the package
+#[error("Integrity check failed for package: \"{package_display_id}\". Unable to verify that the package
 is the same as when the lockfile was generated.
 
 Actual: {actual}
