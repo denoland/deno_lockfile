@@ -372,8 +372,7 @@
       }
     }
   },
-  "remote": {
-  },
+  "remote": {},
   "workspace": {
     "packageJson": {
       "dependencies": [

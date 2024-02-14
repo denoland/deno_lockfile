@@ -392,8 +392,7 @@
       }
     }
   },
-  "remote": {
-  },
+  "remote": {},
   "workspace": {
     "members": {
       "package_a": {

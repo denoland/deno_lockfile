@@ -245,8 +245,7 @@
       }
     }
   },
-  "remote": {
-  },
+  "remote": {},
   "workspace": {
     "dependencies": [
       "jsr:@scope/package_a"
