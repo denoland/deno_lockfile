@@ -56,21 +56,17 @@ struct LockfileJsrGraphPackage {
 
 /// Graph used to analyze a lockfile to determine which packages
 /// and remotes can be removed based on config file changes.
-pub struct LockfilePackageGraph<FNvToJsrUrl: Fn(&str) -> Option<String>> {
+pub struct LockfilePackageGraph {
   root_packages: HashMap<LockfilePkgReq, LockfilePkgId>,
   packages: HashMap<LockfilePkgId, LockfileGraphPackage>,
   remotes: BTreeMap<String, String>,
-  nv_to_jsr_url: FNvToJsrUrl,
 }
 
-impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
-  LockfilePackageGraph<FNvToJsrUrl>
-{
+impl LockfilePackageGraph {
   pub fn from_lockfile<'a>(
     content: PackagesContent,
     remotes: BTreeMap<String, String>,
     old_config_file_packages: impl Iterator<Item = &'a str>,
-    nv_to_jsr_url: FNvToJsrUrl,
   ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
@@ -173,7 +169,6 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
       root_packages,
       packages,
       remotes,
-      nv_to_jsr_url,
     }
   }
 
@@ -252,16 +247,6 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
   fn remove_package(&mut self, id: LockfilePkgId) {
     self.packages.remove(&id);
     self.root_packages.retain(|_, pkg_id| *pkg_id != id);
-    if let LockfilePkgId::Jsr(nv) = id {
-      if let Some(url) = (self.nv_to_jsr_url)(&nv.0) {
-        debug_assert!(
-          url.ends_with('/'),
-          "JSR URL should end with slash: {}",
-          url
-        );
-        self.remotes.retain(|k, _| !k.starts_with(&url));
-      }
-    }
   }
 
   pub fn populate_packages(

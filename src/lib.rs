@@ -21,7 +21,7 @@ use thiserror::Error;
 
 use crate::graphs::LockfilePackageGraph;
 
-pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
+pub struct SetWorkspaceConfigOptions {
   pub config: WorkspaceConfig,
   /// Maintains deno.json dependencies and workspace config
   /// regardless of the `config` options provided.
@@ -35,10 +35,6 @@ pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
   /// Ex. the CLI sets this to `true` when someone runs a
   /// one-off script with `--no-npm`.
   pub no_npm: bool,
-  /// Gives a name and version from JSR (ex. `@scope/package@1.0.0`)
-  /// and expects a URL to the JSR package. This will then be used to
-  /// remove items from the "remotes" for removed packages.
-  pub nv_to_jsr_url: F,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -353,9 +349,9 @@ impl Lockfile {
     json_string
   }
 
-  pub fn set_workspace_config<F: Fn(&str) -> Option<String>>(
+  pub fn set_workspace_config(
     &mut self,
-    mut options: SetWorkspaceConfigOptions<F>,
+    mut options: SetWorkspaceConfigOptions,
   ) {
     fn update_workspace_member(
       has_content_changed: &mut bool,
@@ -504,7 +500,6 @@ impl Lockfile {
         packages,
         remotes,
         old_deps.iter().map(|dep| dep.as_str()),
-        options.nv_to_jsr_url,
       );
 
       // remove the packages

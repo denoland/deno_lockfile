@@ -185,9 +185,6 @@
     }
   },
   "remote": {
-    "https://jsr.io/@scope/package_a/0.0.1/mod.ts": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-    "https://jsr.io/@scope/package_b/0.0.1/mod.ts": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada046",
-    "https://jsr.io/@scope/package_orphan/0.0.1/mod.ts": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada046"
   },
   "workspace": {
     "dependencies": [
@@ -225,6 +222,5 @@
     }
   },
   "remote": {
-    "https://jsr.io/@scope/package_orphan/0.0.1/mod.ts": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada046"
   }
 }
