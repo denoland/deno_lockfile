@@ -233,7 +233,10 @@ pub struct LockfileContent {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
+  // todo(dsherret): in the next lockfile version we should skip
+  // serializing this when it's empty
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
+  #[serde(default)]
   remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
   #[serde(default)]
