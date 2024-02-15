@@ -21,7 +21,7 @@ use thiserror::Error;
 
 use crate::graphs::LockfilePackageGraph;
 
-pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
+pub struct SetWorkspaceConfigOptions {
   pub config: WorkspaceConfig,
   /// Maintains deno.json dependencies and workspace config
   /// regardless of the `config` options provided.
@@ -35,10 +35,6 @@ pub struct SetWorkspaceConfigOptions<F: Fn(&str) -> Option<String>> {
   /// Ex. the CLI sets this to `true` when someone runs a
   /// one-off script with `--no-npm`.
   pub no_npm: bool,
-  /// Gives a name and version from JSR (ex. `@scope/package@1.0.0`)
-  /// and expects a URL to the JSR package. This will then be used to
-  /// remove items from the "remotes" for removed packages.
-  pub nv_to_jsr_url: F,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,7 +78,7 @@ pub enum LockfileError {
 }
 
 #[derive(Debug, Error)]
-#[error("Integrity check failed for npm package: \"{package_display_id}\". Unable to verify that the package
+#[error("Integrity check failed for package: \"{package_display_id}\". Unable to verify that the package
 is the same as when the lockfile was generated.
 
 Actual: {actual}
@@ -104,11 +100,13 @@ pub struct IntegrityCheckFailedError {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
   pub integrity: String,
+  // todo(dsherret): we should skip serializing this in a future lockfile version
   pub dependencies: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct JsrPackageInfo {
+  pub integrity: String,
   /// List of package requirements found in the dependency.
   ///
   /// This is used to tell when a package can be removed from the lockfile.
@@ -235,7 +233,10 @@ pub struct LockfileContent {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
+  // todo(dsherret): in the next lockfile version we should skip
+  // serializing this when it's empty
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
+  #[serde(default)]
   remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
   #[serde(default)]
@@ -351,9 +352,9 @@ impl Lockfile {
     json_string
   }
 
-  pub fn set_workspace_config<F: Fn(&str) -> Option<String>>(
+  pub fn set_workspace_config(
     &mut self,
-    mut options: SetWorkspaceConfigOptions<F>,
+    mut options: SetWorkspaceConfigOptions,
   ) {
     fn update_workspace_member(
       has_content_changed: &mut bool,
@@ -502,7 +503,6 @@ impl Lockfile {
         packages,
         remotes,
         old_deps.iter().map(|dep| dep.as_str()),
-        options.nv_to_jsr_url,
       );
 
       // remove the packages
@@ -651,15 +651,19 @@ impl Lockfile {
     }
   }
 
-  pub fn insert_package_deps(
+  pub fn insert_package(
     &mut self,
     name: String,
+    integrity: String,
     deps: impl Iterator<Item = String>,
   ) {
     let mut is_new_insert = false;
     let package = self.content.packages.jsr.entry(name).or_insert_with(|| {
       is_new_insert = true;
-      Default::default()
+      JsrPackageInfo {
+        integrity,
+        dependencies: Default::default(),
+      }
     });
 
     let start_count = package.dependencies.len();
@@ -1124,18 +1128,27 @@ mod tests {
       Lockfile::with_lockfile_content(file_path, content, false).unwrap();
 
     assert!(!lockfile.has_content_changed);
-    lockfile.insert_package_deps("dep".to_string(), vec![].into_iter());
+    lockfile.insert_package(
+      "dep".to_string(),
+      "integrity".to_string(),
+      vec![].into_iter(),
+    );
     // has changed even though it was empty
     assert!(lockfile.has_content_changed);
 
     // now try inserting the same package
     lockfile.has_content_changed = false;
-    lockfile.insert_package_deps("dep".to_string(), vec![].into_iter());
+    lockfile.insert_package(
+      "dep".to_string(),
+      "integrity".to_string(),
+      vec![].into_iter(),
+    );
     assert!(!lockfile.has_content_changed);
 
     // now with new deps
-    lockfile.insert_package_deps(
+    lockfile.insert_package(
       "dep".to_string(),
+      "integrity".to_string(),
       vec!["dep2".to_string()].into_iter(),
     );
     assert!(lockfile.has_content_changed);

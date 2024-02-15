@@ -16,12 +16,6 @@ use serde::Serialize;
 
 mod helpers;
 
-fn nv_to_jsr_url(nv: &str) -> Option<String> {
-  // very hacky, but good enough for tests
-  let path = format!("@{}", nv[1..].replace('@', "/"));
-  Some(format!("https://jsr.io/{}/", path))
-}
-
 #[test]
 fn config_changes() {
   #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
@@ -99,7 +93,6 @@ fn config_changes() {
         no_config,
         no_npm,
         config: config.clone(),
-        nv_to_jsr_url,
       });
       assert_eq!(
         config_file.has_content_changed,
@@ -114,7 +107,6 @@ fn config_changes() {
         no_config,
         no_npm,
         config: config.clone(),
-        nv_to_jsr_url,
       });
       assert!(!config_file.has_content_changed);
 
@@ -205,7 +197,6 @@ fn adding_workspace_does_not_cause_content_changes() {
         },
         members: BTreeMap::new(),
       },
-      nv_to_jsr_url,
     });
     assert!(!lockfile.has_content_changed); // should not have changed
   }
@@ -225,7 +216,6 @@ fn adding_workspace_does_not_cause_content_changes() {
         },
         members: BTreeMap::new(),
       },
-      nv_to_jsr_url,
     });
     assert!(lockfile.has_content_changed);
   }
@@ -250,7 +240,6 @@ fn adding_workspace_does_not_cause_content_changes() {
         },
         members: BTreeMap::new(),
       },
-      nv_to_jsr_url,
     });
     assert!(lockfile.has_content_changed); // should have changed since lockfile was not empty
   }

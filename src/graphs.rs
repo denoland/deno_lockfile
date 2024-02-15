@@ -46,30 +46,27 @@ struct LockfileNpmGraphPackage {
   dependencies: BTreeMap<String, LockfileNpmPackageId>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct LockfileJsrGraphPackage {
   /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
+  integrity: String,
   dependencies: BTreeSet<LockfilePkgReq>,
 }
 
 /// Graph used to analyze a lockfile to determine which packages
 /// and remotes can be removed based on config file changes.
-pub struct LockfilePackageGraph<FNvToJsrUrl: Fn(&str) -> Option<String>> {
+pub struct LockfilePackageGraph {
   root_packages: HashMap<LockfilePkgReq, LockfilePkgId>,
   packages: HashMap<LockfilePkgId, LockfileGraphPackage>,
   remotes: BTreeMap<String, String>,
-  nv_to_jsr_url: FNvToJsrUrl,
 }
 
-impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
-  LockfilePackageGraph<FNvToJsrUrl>
-{
+impl LockfilePackageGraph {
   pub fn from_lockfile<'a>(
     content: PackagesContent,
     remotes: BTreeMap<String, String>,
     old_config_file_packages: impl Iterator<Item = &'a str>,
-    nv_to_jsr_url: FNvToJsrUrl,
   ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
@@ -88,30 +85,24 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
       } else if let Some(value) = value.strip_prefix("jsr:") {
         let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string()));
         root_packages.insert(LockfilePkgReq(key), nv.clone());
-        packages.insert(
-          nv,
-          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default()),
-        );
       }
     }
 
     for (nv, content_package) in content.jsr {
-      let new_deps = &content_package.dependencies;
-      let package = packages
-        .entry(LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())))
-        .or_insert_with(|| {
-          LockfileGraphPackage::Jsr(LockfileJsrGraphPackage::default())
-        });
-      match package {
-        LockfileGraphPackage::Jsr(package) => {
-          package.dependencies = new_deps
+      packages.insert(
+        LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())),
+        LockfileGraphPackage::Jsr(LockfileJsrGraphPackage {
+          root_ids: Default::default(),
+          integrity: content_package.integrity.clone(),
+          dependencies: content_package
+            .dependencies
             .iter()
             .map(|req| LockfilePkgReq(req.clone()))
-            .collect();
-        }
-        LockfileGraphPackage::Npm(_) => unreachable!(),
-      }
+            .collect(),
+        }),
+      );
     }
+
     for (id, package) in content.npm {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
@@ -178,7 +169,6 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
       root_packages,
       packages,
       remotes,
-      nv_to_jsr_url,
     }
   }
 
@@ -257,16 +247,6 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
   fn remove_package(&mut self, id: LockfilePkgId) {
     self.packages.remove(&id);
     self.root_packages.retain(|_, pkg_id| *pkg_id != id);
-    if let LockfilePkgId::Jsr(nv) = id {
-      if let Some(url) = (self.nv_to_jsr_url)(&nv.0) {
-        debug_assert!(
-          url.ends_with('/'),
-          "JSR URL should end with slash: {}",
-          url
-        );
-        self.remotes.retain(|k, _| !k.starts_with(&url));
-      }
-    }
   }
 
   pub fn populate_packages(
@@ -294,6 +274,7 @@ impl<FNvToJsrUrl: Fn(&str) -> Option<String>>
               LockfilePkgId::Npm(_) => unreachable!(),
             },
             crate::JsrPackageInfo {
+              integrity: package.integrity.clone(),
               dependencies: package
                 .dependencies
                 .into_iter()
