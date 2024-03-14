@@ -808,8 +808,8 @@ mod tests {
   fn check_or_insert_lockfile() {
     let mut lockfile = setup(false).unwrap();
 
-    // false since overwrite was false and there's no changes
-    assert!(!lockfile.resolve_write_bytes().is_some());
+    // none since overwrite was false and there's no changes
+    assert!(lockfile.resolve_write_bytes().is_none());
 
     lockfile.insert(
       "https://deno.land/std@0.71.0/textproto/mod.ts",
