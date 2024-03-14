@@ -322,6 +322,15 @@ impl Lockfile {
       });
     }
 
+    if content.trim().is_empty() {
+      return Ok(Lockfile {
+        overwrite,
+        has_content_changed: false,
+        content: LockfileContent::empty(),
+        filename,
+      });
+    }
+
     let value: serde_json::Map<String, serde_json::Value> =
       serde_json::from_str(content).map_err(|err| {
         Error::ParseError(filename.display().to_string(), err)
@@ -1152,5 +1161,13 @@ mod tests {
       vec!["dep2".to_string()].into_iter(),
     );
     assert!(lockfile.has_content_changed);
+  }
+
+  #[test]
+  fn empty_lockfile_not_error() {
+    let content: &str = r#""#;
+    let file_path = PathBuf::from("lockfile.json");
+    let result = Lockfile::with_lockfile_content(file_path, content, false);
+    assert!(result.is_ok());
   }
 }
