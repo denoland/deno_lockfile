@@ -4,12 +4,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum LockfileError {
-  #[error(transparent)]
-  Io(#[from] std::io::Error),
-
-  #[error("Unable to read lockfile. {0}")]
-  ReadError(String),
-
   #[error("Unable to parse contents of lockfile. {0}: {1:#}")]
   ParseError(String, serde_json::Error),
 

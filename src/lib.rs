@@ -6,7 +6,6 @@ mod graphs;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashSet;
-use std::io::Write;
 use std::path::PathBuf;
 
 use serde::Deserialize;
@@ -271,39 +270,13 @@ pub struct Lockfile {
 }
 
 impl Lockfile {
-  /// Create a new [`Lockfile`] instance from a given filename. The content of
-  /// the file is read from the filesystem using [`std::fs::read_to_string`].
-  pub fn new(filename: PathBuf, overwrite: bool) -> Result<Lockfile, Error> {
-    // Writing a lock file always uses the new format.
-    if overwrite {
-      return Ok(Lockfile {
-        overwrite,
-        has_content_changed: false,
-        content: LockfileContent::empty(),
-        filename,
-      });
+  pub fn new_empty(filename: PathBuf, overwrite: bool) -> Lockfile {
+    Lockfile {
+      overwrite,
+      has_content_changed: false,
+      content: LockfileContent::empty(),
+      filename,
     }
-
-    let result = match std::fs::read_to_string(&filename) {
-      Ok(content) => Ok(content),
-      Err(e) => {
-        if e.kind() == std::io::ErrorKind::NotFound {
-          return Ok(Lockfile {
-            overwrite,
-            has_content_changed: false,
-            content: LockfileContent::empty(),
-            filename,
-          });
-        } else {
-          Err(e)
-        }
-      }
-    };
-
-    let s =
-      result.map_err(|_| Error::ReadError(filename.display().to_string()))?;
-
-    Self::with_lockfile_content(filename, &s, overwrite)
   }
 
   /// Create a new [`Lockfile`] instance from given filename and its content.
@@ -314,12 +287,7 @@ impl Lockfile {
   ) -> Result<Lockfile, Error> {
     // Writing a lock file always uses the new format.
     if overwrite {
-      return Ok(Lockfile {
-        overwrite,
-        has_content_changed: false,
-        content: LockfileContent::empty(),
-        filename,
-      });
+      return Ok(Lockfile::new_empty(filename, overwrite));
     }
 
     let value: serde_json::Map<String, serde_json::Value> =
@@ -522,19 +490,19 @@ impl Lockfile {
     }
   }
 
-  // Synchronize lock file to disk - noop if --lock-write file is not specified.
-  pub fn write(&self) -> Result<(), Error> {
+  /// Gets the bytes that should be written to the disk.
+  ///
+  /// Ideally when the caller should use an "atomic write"
+  /// when writing this—write to a temporary file beside the
+  /// lockfile, then rename to overwrite. This will make the
+  /// lockfile more resilient when multiple processes are
+  /// writing to it.
+  pub fn resolve_write_bytes(&self) -> Option<Vec<u8>> {
     if !self.has_content_changed && !self.overwrite {
-      return Ok(());
+      return None;
     }
 
-    let mut f = std::fs::OpenOptions::new()
-      .write(true)
-      .create(true)
-      .truncate(true)
-      .open(&self.filename)?;
-    f.write_all(self.as_json_string().as_bytes())?;
-    Ok(())
+    Some(self.as_json_string().into_bytes())
   }
 
   // TODO(bartlomieju): this function should return an error instead of a bool,
@@ -693,10 +661,6 @@ impl Lockfile {
 mod tests {
   use super::*;
   use pretty_assertions::assert_eq;
-  use std::fs::File;
-  use std::io::prelude::*;
-  use std::io::Write;
-  use temp_dir::TempDir;
 
   const LOCKFILE_JSON: &str = r#"
 {
@@ -720,19 +684,10 @@ mod tests {
   }
 }"#;
 
-  fn setup(temp_dir: &TempDir) -> PathBuf {
-    let file_path = temp_dir.path().join("valid_lockfile.json");
-    let mut file = File::create(file_path).expect("write file fail");
-
-    file.write_all(LOCKFILE_JSON.as_bytes()).unwrap();
-
-    temp_dir.path().join("valid_lockfile.json")
-  }
-
-  #[test]
-  fn create_lockfile_for_nonexistent_path() {
-    let file_path = PathBuf::from("nonexistent_lock_file.json");
-    assert!(Lockfile::new(file_path, false).is_ok());
+  fn setup(overwrite: bool) -> Result<Lockfile, Error> {
+    let file_path =
+      std::env::current_dir().unwrap().join("valid_lockfile.json");
+    Lockfile::with_lockfile_content(file_path, LOCKFILE_JSON, overwrite)
   }
 
   #[test]
@@ -752,12 +707,9 @@ mod tests {
 
   #[test]
   fn new_valid_lockfile() {
-    let temp_dir = TempDir::new().unwrap();
-    let file_path = setup(&temp_dir);
+    let lockfile = setup(false).unwrap();
 
-    let result = Lockfile::new(file_path, false).unwrap();
-
-    let remote = result.content.remote;
+    let remote = lockfile.content.remote;
     let keys: Vec<String> = remote.keys().cloned().collect();
     let expected_keys = vec![
       String::from("https://deno.land/std@0.71.0/async/delay.ts"),
@@ -787,10 +739,7 @@ mod tests {
 
   #[test]
   fn new_lockfile_from_file_and_insert() {
-    let temp_dir = TempDir::new().unwrap();
-    let file_path = setup(&temp_dir);
-
-    let mut lockfile = Lockfile::new(file_path, false).unwrap();
+    let mut lockfile = setup(false).unwrap();
 
     lockfile.insert(
       "https://deno.land/std@0.71.0/io/util.ts",
@@ -810,10 +759,10 @@ mod tests {
 
   #[test]
   fn new_lockfile_and_write() {
-    let temp_dir = TempDir::new().unwrap();
-    let file_path = setup(&temp_dir);
+    let mut lockfile = setup(true).unwrap();
 
-    let mut lockfile = Lockfile::new(file_path, true).unwrap();
+    // true since overwrite was true
+    assert!(lockfile.resolve_write_bytes().is_some());
 
     lockfile.insert(
       "https://deno.land/std@0.71.0/textproto/mod.ts",
@@ -828,20 +777,9 @@ mod tests {
       "this source is really exciting",
     );
 
-    lockfile.write().expect("unable to write");
-
-    let file_path_buf = temp_dir.path().join("valid_lockfile.json");
-    let file_path = file_path_buf.to_str().expect("file path fail").to_string();
-
-    // read the file contents back into a string and check
-    let mut checkfile = File::open(file_path).expect("Unable to open the file");
-    let mut contents = String::new();
-    checkfile
-      .read_to_string(&mut contents)
-      .expect("Unable to read the file");
-
+    let bytes = lockfile.resolve_write_bytes().unwrap();
     let contents_json =
-      serde_json::from_str::<serde_json::Value>(&contents).unwrap();
+      serde_json::from_slice::<serde_json::Value>(&bytes).unwrap();
     let object = contents_json["remote"].as_object().unwrap();
 
     assert_eq!(
@@ -868,10 +806,10 @@ mod tests {
 
   #[test]
   fn check_or_insert_lockfile() {
-    let temp_dir = TempDir::new().unwrap();
-    let file_path = setup(&temp_dir);
+    let mut lockfile = setup(false).unwrap();
 
-    let mut lockfile = Lockfile::new(file_path, false).unwrap();
+    // false since overwrite was false and there's no changes
+    assert!(!lockfile.resolve_write_bytes().is_some());
 
     lockfile.insert(
       "https://deno.land/std@0.71.0/textproto/mod.ts",
@@ -896,14 +834,14 @@ mod tests {
       "This is new Source code",
     );
     assert!(check_true);
+
+    // true since there were changes
+    assert!(lockfile.resolve_write_bytes().is_some());
   }
 
   #[test]
   fn check_or_insert_lockfile_npm() {
-    let temp_dir = TempDir::new().unwrap();
-    let file_path = setup(&temp_dir);
-
-    let mut lockfile = Lockfile::new(file_path, false).unwrap();
+    let mut lockfile = setup(false).unwrap();
 
     let npm_package = NpmPackageLockfileInfo {
       display_id: "nanoid@3.3.4".to_string(),

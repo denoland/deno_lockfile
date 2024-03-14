@@ -15,4 +15,3 @@ thiserror = "1.0.40"
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"
-temp-dir = "0.1.11"
