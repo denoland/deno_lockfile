@@ -313,16 +313,7 @@ impl Lockfile {
     overwrite: bool,
   ) -> Result<Lockfile, Error> {
     // Writing a lock file always uses the new format.
-    if overwrite {
-      return Ok(Lockfile {
-        overwrite,
-        has_content_changed: false,
-        content: LockfileContent::empty(),
-        filename,
-      });
-    }
-
-    if content.trim().is_empty() {
+    if overwrite || content.trim().is_empty() {
       return Ok(Lockfile {
         overwrite,
         has_content_changed: false,
