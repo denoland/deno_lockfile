@@ -4,9 +4,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum LockfileError {
-  #[error(transparent)]
-  Io(#[from] std::io::Error),
-
   #[error("Unable to read lockfile. {0}")]
   ReadError(String),
 
