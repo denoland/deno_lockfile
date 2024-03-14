@@ -1165,7 +1165,7 @@ mod tests {
 
   #[test]
   fn empty_lockfile_not_error() {
-    let content: &str = r#""#;
+    let content: &str = r#"  "#;
     let file_path = PathBuf::from("lockfile.json");
     let result = Lockfile::with_lockfile_content(file_path, content, false);
     assert!(result.is_ok());
