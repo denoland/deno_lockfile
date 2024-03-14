@@ -290,6 +290,10 @@ impl Lockfile {
       return Ok(Lockfile::new_empty(filename, overwrite));
     }
 
+    if content.trim().is_empty() {
+      return Err(Error::ReadError("Lockfile was empty.".to_string()));
+    }
+
     let value: serde_json::Map<String, serde_json::Value> =
       serde_json::from_str(content).map_err(|err| {
         Error::ParseError(filename.display().to_string(), err)
@@ -1090,5 +1094,18 @@ mod tests {
       vec!["dep2".to_string()].into_iter(),
     );
     assert!(lockfile.has_content_changed);
+  }
+
+  #[test]
+  fn empty_lockfile_nicer_error() {
+    let content: &str = r#"  "#;
+    let file_path = PathBuf::from("lockfile.json");
+    let err = Lockfile::with_lockfile_content(file_path, content, false)
+      .err()
+      .unwrap();
+    assert_eq!(
+      err.to_string(),
+      "Unable to read lockfile. Lockfile was empty."
+    );
   }
 }
