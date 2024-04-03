@@ -426,7 +426,7 @@ impl Lockfile {
         .map_err(|err| LockfileErrorReason::DeserializationError(err))?;
 
       // for now, force the version to be 3 when not 4
-      if !was_version_4 {
+      if !was_version_4 || std::env::var("DENO_FUTURE").is_ok() {
         content.version = "3".to_string();
       }
 
