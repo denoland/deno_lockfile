@@ -46,6 +46,9 @@ pub enum TransformError {
 }
 
 pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
+  // note: although this function is found elsewhere in this repo,
+  // it is purposefully duplicated here to ensure it never changes
+  // for this transform
   fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
     if value.is_empty() {
       return None;
@@ -59,16 +62,16 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
   json.insert("version".into(), "4".into());
   if let Some(Value::Object(mut packages)) = json.remove("packages") {
     if let Some(Value::Object(mut npm)) = packages.remove("npm") {
-      let mut deps_by_name: HashMap<String, Vec<String>> =
+      let mut pkg_had_multiple_versions: HashMap<String, bool> =
         HashMap::with_capacity(npm.len());
       for id in npm.keys() {
-        let Some((name, version)) = extract_nv_from_id(&id) else {
+        let Some((name, _)) = extract_nv_from_id(&id) else {
           continue; // corrupt
         };
-        deps_by_name
+        pkg_had_multiple_versions
           .entry(name.to_string())
-          .or_default()
-          .push(version.to_string());
+          .and_modify(|v| *v = true)
+          .or_default();
       }
       for value in npm.values_mut() {
         let Value::Object(value) = value else {
@@ -89,9 +92,9 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
             });
           };
           if name == key {
-            let has_single_version = deps_by_name
+            let has_single_version = pkg_had_multiple_versions
               .get(name)
-              .map(|version| version.len() == 1)
+              .map(|had_multiple| !had_multiple)
               .unwrap_or(false);
             if has_single_version {
               new_deps.push(Value::String(name.to_string()));
@@ -106,8 +109,12 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
         value.insert("dependencies".into(), new_deps.into());
       }
       packages.insert("npm".into(), npm.into());
+
+      // flatten into root
+      for (key, value) in packages {
+        json.insert(key, value);
+      }
     }
-    json.insert("packages".to_string(), packages.into());
   }
 
   Ok(json)
@@ -241,49 +248,47 @@ mod test {
     let result = transform3_to_4(data).unwrap();
     assert_eq!(result, serde_json::from_value(json!({
       "version": "4",
+      "specifiers": {
+        "npm:package-a": "npm:package-a@3.3.4",
+      },
+      "npm": {
+        "package-a@3.3.4": {
+          "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
+          "dependencies": [
+            "other@npm:package-d@1.0.0",
+            "package-b",
+            "package-c@1.0.0",
+          ]
+        },
+        "package-b@1.0.0": {
+          "integrity": "sha512-foobar",
+          "dependencies": []
+        },
+        "package-c@1.0.0": {
+          "integrity": "sha512-foobar",
+          "dependencies": []
+        },
+        "package-c@2.0.0": {
+          "integrity": "sha512-foobar",
+          "dependencies": [
+            "package-e"
+          ]
+        },
+        "package-d@1.0.0": {
+          "integrity": "sha512-foobar",
+          "dependencies": []
+        },
+        "package-e@1.0.0_package-d@1.0.0": {
+          "integrity": "sha512-foobar",
+          "dependencies": [
+            "package-d"
+          ]
+        }
+      },
       "remote": {
         "https://github.com/": "asdf",
         "https://github.com/mod.ts": "asdf2",
       },
-      "packages": {
-        "specifiers": {
-          "npm:package-a": "npm:package-a@3.3.4",
-        },
-        "npm": {
-          "package-a@3.3.4": {
-            "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
-            "dependencies": [
-              "other@npm:package-d@1.0.0",
-              "package-b",
-              "package-c@1.0.0",
-            ]
-          },
-          "package-b@1.0.0": {
-            "integrity": "sha512-foobar",
-            "dependencies": []
-          },
-          "package-c@1.0.0": {
-            "integrity": "sha512-foobar",
-            "dependencies": []
-          },
-          "package-c@2.0.0": {
-            "integrity": "sha512-foobar",
-            "dependencies": [
-              "package-e"
-            ]
-          },
-          "package-d@1.0.0": {
-            "integrity": "sha512-foobar",
-            "dependencies": []
-          },
-          "package-e@1.0.0_package-d@1.0.0": {
-            "integrity": "sha512-foobar",
-            "dependencies": [
-              "package-d"
-            ]
-          }
-        }
-      }
     })).unwrap());
   }
 }

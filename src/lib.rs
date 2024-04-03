@@ -159,10 +159,10 @@ impl PackagesContent {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
-struct LockfilePackageJsonContent {
+pub(crate) struct LockfilePackageJsonContent {
   #[serde(default)]
   #[serde(skip_serializing_if = "BTreeSet::is_empty")]
-  dependencies: BTreeSet<String>,
+  pub dependencies: BTreeSet<String>,
 }
 
 impl LockfilePackageJsonContent {
@@ -173,13 +173,13 @@ impl LockfilePackageJsonContent {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceMemberConfigContent {
+pub(crate) struct WorkspaceMemberConfigContent {
   #[serde(skip_serializing_if = "BTreeSet::is_empty")]
   #[serde(default)]
-  dependencies: BTreeSet<String>,
+  pub dependencies: BTreeSet<String>,
   #[serde(skip_serializing_if = "LockfilePackageJsonContent::is_empty")]
   #[serde(default)]
-  package_json: LockfilePackageJsonContent,
+  pub package_json: LockfilePackageJsonContent,
 }
 
 impl WorkspaceMemberConfigContent {
@@ -198,12 +198,12 @@ impl WorkspaceMemberConfigContent {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceConfigContent {
+pub(crate) struct WorkspaceConfigContent {
   #[serde(default, flatten)]
-  root: WorkspaceMemberConfigContent,
+  pub root: WorkspaceMemberConfigContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  members: BTreeMap<String, WorkspaceMemberConfigContent>,
+  pub members: BTreeMap<String, WorkspaceMemberConfigContent>,
 }
 
 impl WorkspaceConfigContent {
@@ -222,7 +222,7 @@ impl WorkspaceConfigContent {
 #[derive(Debug, Clone, Serialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
-  version: String,
+  pub(crate) version: String,
   // order these based on auditability
   #[serde(skip_serializing_if = "PackagesContent::is_empty")]
   #[serde(default)]
@@ -234,10 +234,10 @@ pub struct LockfileContent {
   // serializing this when it's empty
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
   #[serde(default)]
-  remote: BTreeMap<String, String>,
+  pub(crate) remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
   #[serde(default)]
-  workspace: WorkspaceConfigContent,
+  pub(crate) workspace: WorkspaceConfigContent,
 }
 
 impl LockfileContent {
@@ -253,15 +253,10 @@ impl LockfileContent {
     fn deserialize_section<T: DeserializeOwned + Default>(
       json: &mut serde_json::Map<String, serde_json::Value>,
       key: &'static str,
-      display_key: Option<&'static str>,
     ) -> Result<T, DeserializationError> {
       match json.remove(key) {
-        Some(value) => serde_json::from_value(value).map_err(|err| {
-          DeserializationError::FailedDeserializing(
-            display_key.unwrap_or(key),
-            err,
-          )
-        }),
+        Some(value) => serde_json::from_value(value)
+          .map_err(|err| DeserializationError::FailedDeserializing(key, err)),
         None => Ok(Default::default()),
       }
     }
@@ -280,90 +275,75 @@ impl LockfileContent {
           _ => None,
         })
         .unwrap_or_else(|| "3".to_string()),
-      packages: match json.remove("packages") {
-        Some(Value::Object(mut packages)) => {
-          let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
-            deserialize_section(&mut packages, "npm", Some("packages.npm"))?;
+      packages: {
+        let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
+          deserialize_section(&mut json, "npm")?;
 
-          // collect the versions
-          let mut version_by_dep_name: HashMap<String, String> =
-            HashMap::with_capacity(raw_npm.len());
-          for nv in raw_npm.keys() {
-            let Some((name, version)) = nv.rsplit_once('@') else {
-              return Err(DeserializationError::InvalidNpmPackageId(
-                nv.to_string(),
-              ));
-            };
-            version_by_dep_name.insert(name.to_string(), version.to_string());
-          }
-
-          // now go through and create the resolved npm package information
-          let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
-          for (key, value) in raw_npm {
-            let mut dependencies = BTreeMap::new();
-            for dep in value.dependencies {
-              let (unresolved_name, version) = match dep.rfind('@') {
-                // 0 is scoped pkg
-                None | Some(0) => match version_by_dep_name.get(&dep) {
-                  Some(version) => (dep.as_str(), version.as_str()),
-                  None => {
-                    return Err(DeserializationError::MissingPackage(dep))
-                  }
-                },
-                Some(at_index) => dep.split_at(at_index),
-              };
-              let (key, package_name) = match unresolved_name.find('@') {
-                // 0 is scoped pkg
-                None | Some(0) => (unresolved_name, unresolved_name),
-                Some(at_index) => {
-                  // ex. key@npm:package-a
-                  let (key, package_name) = unresolved_name.split_at(at_index);
-                  let package_name = match package_name.strip_prefix("npm:") {
-                    Some(package_name) => package_name,
-                    None => {
-                      return Err(
-                        DeserializationError::InvalidNpmPackageDependency(
-                          dep.to_string(),
-                        ),
-                      );
-                    }
-                  };
-                  (key, package_name)
-                }
-              };
-              dependencies.insert(
-                key.to_string(),
-                format!("{}@{}", package_name, version),
-              );
-            }
-            npm.insert(
-              key,
-              NpmPackageInfo {
-                integrity: value.integrity,
-                dependencies,
-              },
-            );
-          }
-
-          PackagesContent {
-            jsr: deserialize_section(
-              &mut packages,
-              "jsr",
-              Some("packages.jsr"),
-            )?,
-            specifiers: deserialize_section(
-              &mut packages,
-              "specifiers",
-              Some("packages.specifiers"),
-            )?,
-            npm,
-          }
+        // collect the versions
+        let mut version_by_dep_name: HashMap<String, String> =
+          HashMap::with_capacity(raw_npm.len());
+        for nv in raw_npm.keys() {
+          let Some((name, version)) = nv.rsplit_once('@') else {
+            return Err(DeserializationError::InvalidNpmPackageId(
+              nv.to_string(),
+            ));
+          };
+          version_by_dep_name.insert(name.to_string(), version.to_string());
         }
-        _ => Default::default(),
+
+        // now go through and create the resolved npm package information
+        let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
+        for (key, value) in raw_npm {
+          let mut dependencies = BTreeMap::new();
+          for dep in value.dependencies {
+            let (unresolved_name, version) = match dep.rfind('@') {
+              // 0 is scoped pkg
+              None | Some(0) => match version_by_dep_name.get(&dep) {
+                Some(version) => (dep.as_str(), version.as_str()),
+                None => return Err(DeserializationError::MissingPackage(dep)),
+              },
+              Some(at_index) => dep.split_at(at_index),
+            };
+            let (key, package_name) = match unresolved_name.find('@') {
+              // 0 is scoped pkg
+              None | Some(0) => (unresolved_name, unresolved_name),
+              Some(at_index) => {
+                // ex. key@npm:package-a
+                let (key, package_name) = unresolved_name.split_at(at_index);
+                let package_name = match package_name.strip_prefix("npm:") {
+                  Some(package_name) => package_name,
+                  None => {
+                    return Err(
+                      DeserializationError::InvalidNpmPackageDependency(
+                        dep.to_string(),
+                      ),
+                    );
+                  }
+                };
+                (key, package_name)
+              }
+            };
+            dependencies
+              .insert(key.to_string(), format!("{}@{}", package_name, version));
+          }
+          npm.insert(
+            key,
+            NpmPackageInfo {
+              integrity: value.integrity,
+              dependencies,
+            },
+          );
+        }
+
+        PackagesContent {
+          jsr: deserialize_section(&mut json, "jsr")?,
+          specifiers: deserialize_section(&mut json, "specifiers")?,
+          npm,
+        }
       },
-      redirects: deserialize_section(&mut json, "redirects", None)?,
-      remote: deserialize_section(&mut json, "remote", None)?,
-      workspace: deserialize_section(&mut json, "workspace", None)?,
+      redirects: deserialize_section(&mut json, "redirects")?,
+      remote: deserialize_section(&mut json, "remote")?,
+      workspace: deserialize_section(&mut json, "workspace")?,
     })
   }
 
@@ -469,9 +449,16 @@ impl Lockfile {
   }
 
   pub fn as_json_string(&self) -> String {
-    let mut json_string = serde_json::to_string_pretty(&self.content).unwrap();
-    json_string.push('\n'); // trailing newline in file
-    json_string
+    if self.content.version == "4" {
+      let mut text = String::new();
+      printer::print_lockfile_content(&self.content, &mut text);
+      text
+    } else {
+      let mut json_string =
+        serde_json::to_string_pretty(&self.content).unwrap();
+      json_string.push('\n'); // trailing newline in file
+      json_string
+    }
   }
 
   pub fn set_workspace_config(
