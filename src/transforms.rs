@@ -109,14 +109,15 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
         value.insert("dependencies".into(), new_deps.into());
       }
       packages.insert("npm".into(), npm.into());
+    }
 
-      // flatten into root
-      for (key, value) in packages {
-        json.insert(key, value);
-      }
+    // flatten packages into root
+    for (key, value) in packages {
+      json.insert(key, value);
     }
   }
 
+  eprintln!("JSON: {:#?}", json);
   Ok(json)
 }
 

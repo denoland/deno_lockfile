@@ -32,6 +32,8 @@ pub fn print_lockfile_content<TWrite: Write>(
 
   // this attempts to be heavily optimized for performance and thus hardcodes indentation
   writer.write("{\n  \"version\": \"4\",\n");
+
+  // order these based on auditability
   let packages = &content.packages;
   if !packages.specifiers.is_empty() {
     writer.write("  \"specifiers\": {\n");

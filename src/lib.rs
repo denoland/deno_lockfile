@@ -244,6 +244,16 @@ impl LockfileContent {
   pub fn from_json(
     json: serde_json::Value,
   ) -> Result<Self, DeserializationError> {
+    fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
+      if value.is_empty() {
+        return None;
+      }
+      let at_index = value[1..].find('@').map(|i| i + 1)?;
+      let name = &value[..at_index];
+      let version = &value[at_index + 1..];
+      Some((name, version))
+    }
+
     #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
     struct RawNpmPackageInfo {
       pub integrity: String,
@@ -282,10 +292,10 @@ impl LockfileContent {
         // collect the versions
         let mut version_by_dep_name: HashMap<String, String> =
           HashMap::with_capacity(raw_npm.len());
-        for nv in raw_npm.keys() {
-          let Some((name, version)) = nv.rsplit_once('@') else {
+        for id in raw_npm.keys() {
+          let Some((name, version)) = extract_nv_from_id(id) else {
             return Err(DeserializationError::InvalidNpmPackageId(
-              nv.to_string(),
+              id.to_string(),
             ));
           };
           version_by_dep_name.insert(name.to_string(), version.to_string());
@@ -302,7 +312,7 @@ impl LockfileContent {
                 Some(version) => (dep.as_str(), version.as_str()),
                 None => return Err(DeserializationError::MissingPackage(dep)),
               },
-              Some(at_index) => dep.split_at(at_index),
+              Some(at_index) => (&dep[..at_index], &dep[at_index + 1..]),
             };
             let (key, package_name) = match unresolved_name.find('@') {
               // 0 is scoped pkg
