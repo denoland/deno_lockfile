@@ -1,6 +1,11 @@
 // Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
 
-pub type JsonMap = serde_json::Map<String, serde_json::Value>;
+use std::collections::HashMap;
+
+use serde_json::Value;
+use thiserror::Error;
+
+pub type JsonMap = serde_json::Map<String, Value>;
 
 pub fn transform1_to_2(json: JsonMap) -> JsonMap {
   let mut new_map = JsonMap::new();
@@ -11,17 +16,15 @@ pub fn transform1_to_2(json: JsonMap) -> JsonMap {
 
 pub fn transform2_to_3(mut json: JsonMap) -> JsonMap {
   json.insert("version".into(), "3".into());
-  if let Some(serde_json::Value::Object(mut npm_obj)) = json.remove("npm") {
+  if let Some(Value::Object(mut npm_obj)) = json.remove("npm") {
     let mut new_obj = JsonMap::new();
     if let Some(packages) = npm_obj.remove("packages") {
       new_obj.insert("npm".into(), packages);
     }
-    if let Some(serde_json::Value::Object(specifiers)) =
-      npm_obj.remove("specifiers")
-    {
+    if let Some(Value::Object(specifiers)) = npm_obj.remove("specifiers") {
       let mut new_specifiers = JsonMap::new();
       for (key, value) in specifiers {
-        if let serde_json::Value::String(value) = value {
+        if let Value::String(value) = value {
           new_specifiers
             .insert(format!("npm:{}", key), format!("npm:{}", value).into());
         }
@@ -34,6 +37,80 @@ pub fn transform2_to_3(mut json: JsonMap) -> JsonMap {
   }
 
   json
+}
+
+#[derive(Debug, Error)]
+pub enum TransformError {
+  #[error("Failed extracting npm name and version from dep '{id}'.")]
+  FailedExtractingV3NpmDepNv { id: String },
+}
+
+pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
+  fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
+    if value.is_empty() {
+      return None;
+    }
+    let at_index = value[1..].find('@').map(|i| i + 1)?;
+    let name = &value[..at_index];
+    let version = &value[at_index + 1..];
+    Some((name, version))
+  }
+
+  json.insert("version".into(), "4".into());
+  if let Some(Value::Object(mut packages)) = json.remove("packages") {
+    if let Some(Value::Object(mut npm)) = packages.remove("npm") {
+      let mut deps_by_name: HashMap<String, Vec<String>> =
+        HashMap::with_capacity(npm.len());
+      for id in npm.keys() {
+        let Some((name, version)) = extract_nv_from_id(&id) else {
+          continue; // corrupt
+        };
+        deps_by_name
+          .entry(name.to_string())
+          .or_default()
+          .push(version.to_string());
+      }
+      for value in npm.values_mut() {
+        let Value::Object(value) = value else {
+          continue;
+        };
+        let Some(Value::Object(deps)) = value.remove("dependencies") else {
+          continue;
+        };
+        let mut new_deps = Vec::with_capacity(deps.len());
+        for (key, id) in deps {
+          let Value::String(id) = id else {
+            continue;
+          };
+          let Some((name, version)) = extract_nv_from_id(&id) else {
+            // corrupt
+            return Err(TransformError::FailedExtractingV3NpmDepNv {
+              id: id.to_string(),
+            });
+          };
+          if name == key {
+            let has_single_version = deps_by_name
+              .get(name)
+              .map(|version| version.len() == 1)
+              .unwrap_or(false);
+            if has_single_version {
+              new_deps.push(Value::String(name.to_string()));
+            } else {
+              new_deps.push(Value::String(format!("{}@{}", name, version)));
+            }
+          } else {
+            new_deps
+              .push(Value::String(format!("{}@npm:{}@{}", key, name, version)));
+          }
+        }
+        value.insert("dependencies".into(), new_deps.into());
+      }
+      packages.insert("npm".into(), npm.into());
+    }
+    json.insert("packages".to_string(), packages.into());
+  }
+
+  Ok(json)
 }
 
 #[cfg(test)]
@@ -107,6 +184,103 @@ mod test {
           "picocolors@1.0.0": {
             "integrity": "sha512-foobar",
             "dependencies": {}
+          }
+        }
+      }
+    })).unwrap());
+  }
+
+  #[test]
+  fn test_transforms_3_to_4_basic() {
+    let data: JsonMap = serde_json::from_value(json!({
+      "version": "3",
+      "remote": {
+        "https://github.com/": "asdf",
+        "https://github.com/mod.ts": "asdf2",
+      },
+      "packages": {
+        "specifiers": {
+          "npm:package-a": "npm:package-a@3.3.4",
+        },
+        "npm": {
+          "package-a@3.3.4": {
+            "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
+            "dependencies": {
+              "package-b": "package-b@1.0.0",
+              "package-c": "package-c@1.0.0",
+              "other": "package-d@1.0.0",
+            }
+          },
+          "package-b@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": {}
+          },
+          "package-c@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": {}
+          },
+          "package-c@2.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": {
+              "package-e": "package-e@1.0.0_package-d@1.0.0",
+            }
+          },
+          "package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": {}
+          },
+          "package-e@1.0.0_package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": {
+              "package-d": "package-d@1.0.0",
+            }
+          }
+        }
+      }
+    })).unwrap();
+    let result = transform3_to_4(data).unwrap();
+    assert_eq!(result, serde_json::from_value(json!({
+      "version": "4",
+      "remote": {
+        "https://github.com/": "asdf",
+        "https://github.com/mod.ts": "asdf2",
+      },
+      "packages": {
+        "specifiers": {
+          "npm:package-a": "npm:package-a@3.3.4",
+        },
+        "npm": {
+          "package-a@3.3.4": {
+            "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
+            "dependencies": [
+              "other@npm:package-d@1.0.0",
+              "package-b",
+              "package-c@1.0.0",
+            ]
+          },
+          "package-b@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": []
+          },
+          "package-c@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": []
+          },
+          "package-c@2.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": [
+              "package-e"
+            ]
+          },
+          "package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": []
+          },
+          "package-e@1.0.0_package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": [
+              "package-d"
+            ]
           }
         }
       }

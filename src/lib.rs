@@ -5,15 +5,20 @@ mod graphs;
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
+mod printer;
 mod transforms;
 
-pub use error::LockfileError as Error;
+pub use error::DeserializationError;
+pub use error::LockfileError;
+pub use error::LockfileErrorReason;
 use sha2::Digest;
 use sha2::Sha256;
 use thiserror::Error;
@@ -71,12 +76,6 @@ fn gen_checksum(v: &[u8]) -> String {
 }
 
 #[derive(Debug, Error)]
-pub enum LockfileError {
-  #[error(transparent)]
-  IntegrityCheckFailed(#[from] IntegrityCheckFailedError),
-}
-
-#[derive(Debug, Error)]
 #[error("Integrity check failed for package: \"{package_display_id}\". Unable to verify that the package
 is the same as when the lockfile was generated.
 
@@ -99,7 +98,6 @@ pub struct IntegrityCheckFailedError {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
   pub integrity: String,
-  // todo(dsherret): we should skip serializing this in a future lockfile version
   pub dependencies: BTreeMap<String, String>,
 }
 
@@ -221,7 +219,7 @@ impl WorkspaceConfigContent {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
   version: String,
@@ -243,6 +241,132 @@ pub struct LockfileContent {
 }
 
 impl LockfileContent {
+  pub fn from_json(
+    json: serde_json::Value,
+  ) -> Result<Self, DeserializationError> {
+    #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+    struct RawNpmPackageInfo {
+      pub integrity: String,
+      pub dependencies: Vec<String>,
+    }
+
+    fn deserialize_section<T: DeserializeOwned + Default>(
+      json: &mut serde_json::Map<String, serde_json::Value>,
+      key: &'static str,
+      display_key: Option<&'static str>,
+    ) -> Result<T, DeserializationError> {
+      match json.remove(key) {
+        Some(value) => serde_json::from_value(value).map_err(|err| {
+          DeserializationError::FailedDeserializing(
+            display_key.unwrap_or(key),
+            err,
+          )
+        }),
+        None => Ok(Default::default()),
+      }
+    }
+
+    use serde_json::Value;
+
+    let Value::Object(mut json) = json else {
+      return Ok(Self::empty());
+    };
+
+    Ok(LockfileContent {
+      version: json
+        .remove("version")
+        .and_then(|v| match v {
+          Value::String(v) => Some(v),
+          _ => None,
+        })
+        .unwrap_or_else(|| "3".to_string()),
+      packages: match json.remove("packages") {
+        Some(Value::Object(mut packages)) => {
+          let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
+            deserialize_section(&mut packages, "npm", Some("packages.npm"))?;
+
+          // collect the versions
+          let mut version_by_dep_name: HashMap<String, String> =
+            HashMap::with_capacity(raw_npm.len());
+          for nv in raw_npm.keys() {
+            let Some((name, version)) = nv.rsplit_once('@') else {
+              return Err(DeserializationError::InvalidNpmPackageId(
+                nv.to_string(),
+              ));
+            };
+            version_by_dep_name.insert(name.to_string(), version.to_string());
+          }
+
+          // now go through and create the resolved npm package information
+          let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
+          for (key, value) in raw_npm {
+            let mut dependencies = BTreeMap::new();
+            for dep in value.dependencies {
+              let (unresolved_name, version) = match dep.rfind('@') {
+                // 0 is scoped pkg
+                None | Some(0) => match version_by_dep_name.get(&dep) {
+                  Some(version) => (dep.as_str(), version.as_str()),
+                  None => {
+                    return Err(DeserializationError::MissingPackage(dep))
+                  }
+                },
+                Some(at_index) => dep.split_at(at_index),
+              };
+              let (key, package_name) = match unresolved_name.find('@') {
+                // 0 is scoped pkg
+                None | Some(0) => (unresolved_name, unresolved_name),
+                Some(at_index) => {
+                  // ex. key@npm:package-a
+                  let (key, package_name) = unresolved_name.split_at(at_index);
+                  let package_name = match package_name.strip_prefix("npm:") {
+                    Some(package_name) => package_name,
+                    None => {
+                      return Err(
+                        DeserializationError::InvalidNpmPackageDependency(
+                          dep.to_string(),
+                        ),
+                      );
+                    }
+                  };
+                  (key, package_name)
+                }
+              };
+              dependencies.insert(
+                key.to_string(),
+                format!("{}@{}", package_name, version),
+              );
+            }
+            npm.insert(
+              key,
+              NpmPackageInfo {
+                integrity: value.integrity,
+                dependencies,
+              },
+            );
+          }
+
+          PackagesContent {
+            jsr: deserialize_section(
+              &mut packages,
+              "jsr",
+              Some("packages.jsr"),
+            )?,
+            specifiers: deserialize_section(
+              &mut packages,
+              "specifiers",
+              Some("packages.specifiers"),
+            )?,
+            npm,
+          }
+        }
+        _ => Default::default(),
+      },
+      redirects: deserialize_section(&mut json, "redirects", None)?,
+      remote: deserialize_section(&mut json, "remote", None)?,
+      workspace: deserialize_section(&mut json, "workspace", None)?,
+    })
+  }
+
   fn empty() -> Self {
     Self {
       version: "3".to_string(),
@@ -284,31 +408,57 @@ impl Lockfile {
     filename: PathBuf,
     content: &str,
     overwrite: bool,
-  ) -> Result<Lockfile, Error> {
+  ) -> Result<Lockfile, LockfileError> {
+    fn load_content(
+      content: &str,
+    ) -> Result<LockfileContent, LockfileErrorReason> {
+      let value: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(content)
+          .map_err(|err| LockfileErrorReason::ParseError(err))?;
+      let version = value.get("version").and_then(|v| v.as_str());
+      let was_version_4 = version == Some("4");
+      let value = match version {
+        Some("4") => value,
+        Some("3") => transforms::transform3_to_4(value)?,
+        Some("2") => {
+          transforms::transform3_to_4(transforms::transform2_to_3(value))?
+        }
+        None => transforms::transform3_to_4(transforms::transform2_to_3(
+          transforms::transform1_to_2(value),
+        ))?,
+        Some(version) => {
+          return Err(LockfileErrorReason::UnsupportedVersion {
+            version: version.to_string(),
+          });
+        }
+      };
+      let mut content = LockfileContent::from_json(value.into())
+        .map_err(|err| LockfileErrorReason::DeserializationError(err))?;
+
+      // for now, force the version to be 3 when not 4
+      if !was_version_4 {
+        content.version = "3".to_string();
+      }
+
+      Ok(content)
+    }
+
     // Writing a lock file always uses the new format.
     if overwrite {
       return Ok(Lockfile::new_empty(filename, overwrite));
     }
 
     if content.trim().is_empty() {
-      return Err(Error::ReadError("Lockfile was empty.".to_string()));
+      return Err(LockfileError {
+        filename: filename.display().to_string(),
+        reason: LockfileErrorReason::Empty,
+      });
     }
 
-    let value: serde_json::Map<String, serde_json::Value> =
-      serde_json::from_str(content).map_err(|err| {
-        Error::ParseError(filename.display().to_string(), err)
-      })?;
-    let version = value.get("version").and_then(|v| v.as_str());
-    let value = match version {
-      Some("3") => value,
-      Some("2") => transforms::transform2_to_3(value),
-      None => transforms::transform2_to_3(transforms::transform1_to_2(value)),
-      Some(version) => {
-        return Err(Error::UnsupportedVersion(version.to_string()));
-      }
-    };
-    let content = serde_json::from_value::<LockfileContent>(value.into())
-      .map_err(|err| Error::ParseError(filename.display().to_string(), err))?;
+    let content = load_content(content).map_err(|reason| LockfileError {
+      filename: filename.display().to_string(),
+      reason,
+    })?;
 
     Ok(Lockfile {
       overwrite,
@@ -531,7 +681,7 @@ impl Lockfile {
   pub fn check_or_insert_npm_package(
     &mut self,
     package_info: NpmPackageLockfileInfo,
-  ) -> Result<(), LockfileError> {
+  ) -> Result<(), IntegrityCheckFailedError> {
     if self.overwrite {
       // In case --lock-write is specified check always passes
       self.insert_npm_package(package_info);
@@ -562,21 +712,19 @@ impl Lockfile {
   fn check_or_insert_npm(
     &mut self,
     package: NpmPackageLockfileInfo,
-  ) -> Result<(), LockfileError> {
+  ) -> Result<(), IntegrityCheckFailedError> {
     if let Some(package_info) =
       self.content.packages.npm.get(&package.serialized_id)
     {
       let actual = package_info.integrity.as_str();
       let expected = &package.integrity;
       if actual != expected {
-        return Err(LockfileError::IntegrityCheckFailed(
-          IntegrityCheckFailedError {
-            package_display_id: package.display_id,
-            filename: self.filename.display().to_string(),
-            actual: actual.to_string(),
-            expected: expected.to_string(),
-          },
-        ));
+        return Err(IntegrityCheckFailedError {
+          package_display_id: package.display_id,
+          filename: self.filename.display().to_string(),
+          actual: actual.to_string(),
+          expected: expected.to_string(),
+        });
       }
     } else {
       self.insert_npm_package(package);
@@ -688,7 +836,7 @@ mod tests {
   }
 }"#;
 
-  fn setup(overwrite: bool) -> Result<Lockfile, Error> {
+  fn setup(overwrite: bool) -> Result<Lockfile, LockfileError> {
     let file_path =
       std::env::current_dir().unwrap().join("valid_lockfile.json");
     Lockfile::with_lockfile_content(file_path, LOCKFILE_JSON, overwrite)
@@ -705,7 +853,7 @@ mod tests {
       )
       .err()
       .unwrap().to_string(),
-      "Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
+      "Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile at 'lockfile.json'.".to_string()
     );
   }
 
@@ -1105,7 +1253,7 @@ mod tests {
       .unwrap();
     assert_eq!(
       err.to_string(),
-      "Unable to read lockfile. Lockfile was empty."
+      "Unable to read lockfile. Lockfile was empty at 'lockfile.json'."
     );
   }
 }
