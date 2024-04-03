@@ -306,13 +306,12 @@ impl LockfileContent {
         for (key, value) in raw_npm {
           let mut dependencies = BTreeMap::new();
           for dep in value.dependencies {
-            let (unresolved_name, version) = match dep.rfind('@') {
-              // 0 is scoped pkg
-              None | Some(0) => match version_by_dep_name.get(&dep) {
+            let (unresolved_name, version) = match extract_nv_from_id(&dep) {
+              Some((name, version)) => (name, version),
+              None => match version_by_dep_name.get(&dep) {
                 Some(version) => (dep.as_str(), version.as_str()),
                 None => return Err(DeserializationError::MissingPackage(dep)),
               },
-              Some(at_index) => (&dep[..at_index], &dep[at_index + 1..]),
             };
             let (key, package_name) = match unresolved_name.find('@') {
               // 0 is scoped pkg
@@ -426,7 +425,7 @@ impl Lockfile {
         .map_err(|err| LockfileErrorReason::DeserializationError(err))?;
 
       // for now, force the version to be 3 when not 4
-      if !was_version_4 || std::env::var("DENO_FUTURE").is_ok() {
+      if !was_version_4 && !std::env::var("DENO_FUTURE").is_ok() {
         content.version = "3".to_string();
       }
 
@@ -449,13 +448,17 @@ impl Lockfile {
       filename: filename.display().to_string(),
       reason,
     })?;
-
-    Ok(Lockfile {
+    let lockfile = Lockfile {
       overwrite,
       has_content_changed: false,
       content,
       filename,
-    })
+    };
+    // temp
+    if std::env::var("DENO_FUTURE").is_ok() {
+      std::fs::write(&lockfile.filename, lockfile.as_json_string()).unwrap();
+    }
+    Ok(lockfile)
   }
 
   pub fn as_json_string(&self) -> String {
@@ -648,11 +651,12 @@ impl Lockfile {
   /// lockfile, then rename to overwrite. This will make the
   /// lockfile more resilient when multiple processes are
   /// writing to it.
-  pub fn resolve_write_bytes(&self) -> Option<Vec<u8>> {
+  pub fn resolve_write_bytes(&mut self) -> Option<Vec<u8>> {
     if !self.has_content_changed && !self.overwrite {
       return None;
     }
 
+    self.has_content_changed = false;
     Some(self.as_json_string().into_bytes())
   }
 

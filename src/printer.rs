@@ -44,7 +44,7 @@ pub fn print_lockfile_content<TWrite: Write>(
       writer.write("\": \"");
       // todo: json escape?
       writer.write(value);
-      writer.write(",\n");
+      writer.write("\",\n");
     }
     writer.write("  },\n");
   }
@@ -63,7 +63,7 @@ pub fn print_lockfile_content<TWrite: Write>(
   if !content.workspace.is_empty() {
     write_workspace(&mut writer, &content.workspace);
   }
-  writer.write("\n}\n");
+  writer.write("}\n");
 }
 
 fn write_jsr(
@@ -125,7 +125,7 @@ fn write_npm(
     writer.write("\": {\n");
     writer.write("      \"integrity\": \"");
     writer.write(&value.integrity);
-    writer.write("\",");
+    writer.write("\",\n");
     if !value.dependencies.is_empty() {
       writer.write("      \"dependencies\": [\n");
       for (key, id) in &value.dependencies {

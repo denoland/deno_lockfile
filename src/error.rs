@@ -10,6 +10,8 @@ pub struct LockfileError {
   pub reason: LockfileErrorReason,
 }
 
+impl std::error::Error for LockfileError {}
+
 impl std::fmt::Display for LockfileError {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match &self.reason {
