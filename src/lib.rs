@@ -466,7 +466,7 @@ impl Lockfile {
   pub fn as_json_string(&self) -> String {
     if self.content.version == "4" {
       let mut text = String::new();
-      printer::print_lockfile_content(&self.content, &mut text);
+      printer::print_v4_content(&self.content, &mut text);
       text
     } else {
       let mut json_string =

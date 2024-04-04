@@ -9,8 +9,10 @@ use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
 
+// Note: This is temporary until we upgrade to v4
+
 // todo: investigate json escaping, which might not be necessary here
-pub fn print_lockfile_content(content: &LockfileContent, output: &mut String) {
+pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
   // this attempts to be heavily optimized for performance and thus hardcodes indentation
   output.push_str("{\n  \"version\": \"4\"");
 
