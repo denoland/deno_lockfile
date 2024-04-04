@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
+mod parser;
 mod printer;
 mod transforms;
 
@@ -401,9 +402,8 @@ impl Lockfile {
     fn load_content(
       content: &str,
     ) -> Result<LockfileContent, LockfileErrorReason> {
-      let value: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(content)
-          .map_err(|err| LockfileErrorReason::ParseError(err))?;
+      let value = parser::parse_json(content)
+        .map_err(|err| LockfileErrorReason::ParseError(err))?;
       let version = value.get("version").and_then(|v| v.as_str());
       let was_version_4 = version == Some("4");
       let value = match version {

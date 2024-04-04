@@ -40,6 +40,7 @@ dependencies = [
 name = "deno_lockfile"
 version = "0.19.0"
 dependencies = [
+ "monch",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -84,6 +85,12 @@ name = "libc"
 version = "0.2.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a08173bc88b7955d1b3145aa561539096c421ac8debde8cbc3612ec635fee29b"
+
+[[package]]
+name = "monch"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b52c1b33ff98142aecea13138bd399b68aa7ab5d9546c300988c345004001eea"
 
 [[package]]
 name = "pretty_assertions"

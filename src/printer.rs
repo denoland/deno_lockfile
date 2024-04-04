@@ -24,6 +24,7 @@ impl<'a, TWrite: Write> Writer<'a, TWrite> {
   }
 }
 
+// todo: investigate json escaping, which might not be necessary here
 pub fn print_lockfile_content<TWrite: Write>(
   content: &LockfileContent,
   writer: &mut TWrite,
@@ -39,10 +40,8 @@ pub fn print_lockfile_content<TWrite: Write>(
     writer.write("  \"specifiers\": {\n");
     for (key, value) in &packages.specifiers {
       writer.write("    \"");
-      // todo: json escape?
       writer.write(key);
       writer.write("\": \"");
-      // todo: json escape?
       writer.write(value);
       writer.write("\",\n");
     }
