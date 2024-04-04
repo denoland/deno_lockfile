@@ -117,7 +117,6 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
     }
   }
 
-  eprintln!("JSON: {:#?}", json);
   Ok(json)
 }
 

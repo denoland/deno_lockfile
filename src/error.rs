@@ -27,7 +27,7 @@ impl std::fmt::Display for LockfileError {
 #[derive(Debug)]
 pub enum LockfileErrorReason {
   Empty,
-  ParseError(monch::ParseErrorFailureError),
+  ParseError(serde_json::Error),
   DeserializationError(DeserializationError),
   UnsupportedVersion { version: String },
   TransformError(TransformError),

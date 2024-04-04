@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::fmt::Write;
 
 use crate::JsrPackageInfo;
 use crate::LockfileContent;
@@ -10,91 +9,76 @@ use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
 
-struct Writer<'a, TWrite: Write> {
-  inner: &'a mut TWrite,
-}
-
-impl<'a, TWrite: Write> Writer<'a, TWrite> {
-  fn new(inner: &'a mut TWrite) -> Self {
-    Self { inner }
-  }
-
-  fn write(&mut self, s: &str) {
-    self.inner.write_str(s).unwrap();
-  }
-}
-
 // todo: investigate json escaping, which might not be necessary here
-pub fn print_lockfile_content<TWrite: Write>(
-  content: &LockfileContent,
-  writer: &mut TWrite,
-) {
-  let mut writer = Writer::new(writer);
-
+pub fn print_lockfile_content(content: &LockfileContent, output: &mut String) {
   // this attempts to be heavily optimized for performance and thus hardcodes indentation
-  writer.write("{\n  \"version\": \"4\",\n");
+  output.push_str("{\n  \"version\": \"4\"");
 
   // order these based on auditability
   let packages = &content.packages;
   if !packages.specifiers.is_empty() {
-    writer.write("  \"specifiers\": {\n");
-    for (key, value) in &packages.specifiers {
-      writer.write("    \"");
-      writer.write(key);
-      writer.write("\": \"");
-      writer.write(value);
-      writer.write("\",\n");
+    output.push_str(",\n  \"specifiers\": {\n");
+    for (i, (key, value)) in packages.specifiers.iter().enumerate() {
+      if i > 0 {
+        output.push_str(",\n");
+      }
+      output.push_str("    \"");
+      output.push_str(key);
+      output.push_str("\": \"");
+      output.push_str(value);
+      output.push_str("\"");
     }
-    writer.write("  },\n");
+    output.push_str("\n  }");
   }
+
   if !packages.jsr.is_empty() {
-    write_jsr(&mut writer, &packages.jsr);
+    write_jsr(output, &packages.jsr);
   }
   if !packages.npm.is_empty() {
-    write_npm(&mut writer, &packages.npm);
+    write_npm(output, &packages.npm);
   }
   if !content.redirects.is_empty() {
-    write_redirects(&mut writer, &content.redirects);
+    write_redirects(output, &content.redirects);
   }
   if !content.remote.is_empty() {
-    write_remote(&mut writer, &content.remote);
+    write_remote(output, &content.remote);
   }
   if !content.workspace.is_empty() {
-    write_workspace(&mut writer, &content.workspace);
+    write_workspace(output, &content.workspace);
   }
-  writer.write("}\n");
+  output.push_str("\n}\n");
 }
 
-fn write_jsr(
-  writer: &mut Writer<impl Write>,
-  jsr: &BTreeMap<String, JsrPackageInfo>,
-) {
-  writer.write("  \"jsr\": {\n");
-  for (key, value) in jsr {
-    writer.write("    \"");
-    writer.write(key);
-    writer.write("\": {\n");
-    writer.write("      \"integrity\": \"");
-    writer.write(&value.integrity);
-    writer.write("\",\n");
-    if !value.dependencies.is_empty() {
-      writer.write("      \"dependencies\": [\n");
-      for dep in &value.dependencies {
-        writer.write("        \"");
-        writer.write(dep);
-        writer.write("\",\n");
-      }
-      writer.write("      ],\n");
+fn write_jsr(output: &mut String, jsr: &BTreeMap<String, JsrPackageInfo>) {
+  output.push_str(",\n  \"jsr\": {\n");
+  for (i, (key, value)) in jsr.iter().enumerate() {
+    if i > 0 {
+      output.push_str(",\n");
     }
-    writer.write("    },\n");
+    output.push_str("    \"");
+    output.push_str(key);
+    output.push_str("\": {\n");
+    output.push_str("      \"integrity\": \"");
+    output.push_str(&value.integrity);
+    output.push_str("\"");
+    if !value.dependencies.is_empty() {
+      output.push_str(",\n      \"dependencies\": [\n");
+      for (i, dep) in value.dependencies.iter().enumerate() {
+        if i > 0 {
+          output.push_str(",\n");
+        }
+        output.push_str("        \"");
+        output.push_str(dep);
+        output.push_str("\"");
+      }
+      output.push_str("\n      ]");
+    }
+    output.push_str("\n    }");
   }
-  writer.write("  },\n");
+  output.push_str("\n  }");
 }
 
-fn write_npm(
-  writer: &mut Writer<impl Write>,
-  npm: &BTreeMap<String, NpmPackageInfo>,
-) {
+fn write_npm(output: &mut String, npm: &BTreeMap<String, NpmPackageInfo>) {
   fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
     if value.is_empty() {
       return None;
@@ -117,122 +101,135 @@ fn write_npm(
       .or_default();
   }
 
-  writer.write("  \"npm\": {\n");
-  for (key, value) in npm {
-    writer.write("    \"");
-    writer.write(key);
-    writer.write("\": {\n");
-    writer.write("      \"integrity\": \"");
-    writer.write(&value.integrity);
-    writer.write("\",\n");
+  output.push_str(",\n  \"npm\": {\n");
+  for (i, (key, value)) in npm.iter().enumerate() {
+    if i > 0 {
+      output.push_str(",\n");
+    }
+    output.push_str("    \"");
+    output.push_str(key);
+    output.push_str("\": {\n");
+    output.push_str("      \"integrity\": \"");
+    output.push_str(&value.integrity);
+    output.push('"');
     if !value.dependencies.is_empty() {
-      writer.write("      \"dependencies\": [\n");
-      for (key, id) in &value.dependencies {
+      output.push_str(",\n      \"dependencies\": [\n");
+      for (i, (key, id)) in value.dependencies.iter().enumerate() {
+        if i > 0 {
+          output.push_str(",\n");
+        }
         let (name, version) = extract_nv_from_id(id).unwrap();
-        writer.write("        \"");
+        output.push_str("        \"");
         if name == key {
           let has_single_version = pkg_had_multiple_versions
             .get(name)
             .map(|had_multiple| !had_multiple)
             .unwrap_or(false);
           if has_single_version {
-            writer.write(name);
+            output.push_str(name);
           } else {
-            writer.write(name);
-            writer.write("@");
-            writer.write(version);
+            output.push_str(name);
+            output.push('@');
+            output.push_str(version);
           }
         } else {
-          writer.write(key);
-          writer.write("@npm:");
-          writer.write(name);
-          writer.write("@");
-          writer.write(version);
+          output.push_str(key);
+          output.push_str("@npm:");
+          output.push_str(name);
+          output.push('@');
+          output.push_str(version);
         }
-        writer.write("\",\n");
+        output.push_str("\"");
       }
-      writer.write("      ],\n");
+      output.push_str("\n      ]");
     }
-    writer.write("    },\n");
+    output.push_str("\n    }");
   }
-  writer.write("  },\n");
+  output.push_str("\n  }");
 }
 
-fn write_redirects(
-  writer: &mut Writer<impl Write>,
-  redirects: &BTreeMap<String, String>,
-) {
-  writer.write("  \"redirects\": {\n");
-  for (key, value) in redirects {
-    writer.write("    \"");
-    writer.write(key);
-    writer.write("\": \"");
-    writer.write(value);
-    writer.write("\",\n");
+fn write_redirects(output: &mut String, redirects: &BTreeMap<String, String>) {
+  output.push_str(",\n  \"redirects\": {\n");
+  for (i, (key, value)) in redirects.iter().enumerate() {
+    if i > 0 {
+      output.push_str(",\n");
+    }
+    output.push_str("    \"");
+    output.push_str(key);
+    output.push_str("\": \"");
+    output.push_str(value);
+    output.push('\"');
   }
-  writer.write("  },\n");
+  output.push_str("\n  }");
 }
 
-fn write_remote(
-  writer: &mut Writer<impl Write>,
-  remote: &BTreeMap<String, String>,
-) {
-  writer.write("  \"remote\": {\n");
-  for (key, value) in remote {
-    writer.write("    \"");
-    writer.write(key);
-    writer.write("\": \"");
-    writer.write(value);
-    writer.write("\",\n");
+fn write_remote(output: &mut String, remote: &BTreeMap<String, String>) {
+  output.push_str(",\n  \"remote\": {\n");
+  for (i, (key, value)) in remote.iter().enumerate() {
+    if i > 0 {
+      output.push_str(",\n");
+    }
+    output.push_str("    \"");
+    output.push_str(key);
+    output.push_str("\": \"");
+    output.push_str(value);
+    output.push('\"');
   }
-  writer.write("  },\n");
+  output.push_str("\n  }");
 }
 
-fn write_workspace(
-  writer: &mut Writer<impl Write>,
-  workspace: &WorkspaceConfigContent,
-) {
-  writer.write("  \"workspace\": {\n");
-  write_workspace_member_config(writer, &workspace.root, "    ");
+fn write_workspace(output: &mut String, workspace: &WorkspaceConfigContent) {
+  output.push_str(",\n  \"workspace\": {\n");
+  write_workspace_member_config(output, &workspace.root, "    ");
   if !workspace.members.is_empty() {
-    writer.write("    \"members\": {\n");
-    for (key, value) in &workspace.members {
-      writer.write("      \"");
-      writer.write(key);
-      writer.write("\": {\n");
-      write_workspace_member_config(writer, value, "        ");
-      writer.write("      },\n");
+    output.push_str("    \"members\": {\n");
+    for (i, (key, value)) in workspace.members.iter().enumerate() {
+      if i > 0 {
+        output.push_str(",\n");
+      }
+      output.push_str("      \"");
+      output.push_str(key);
+      output.push_str("\": {\n");
+      write_workspace_member_config(output, value, "        ");
+      output.push_str("\n      }");
     }
   }
-  writer.write("    },\n");
-  writer.write("  },\n");
+  output.push_str("\n    }\n  }");
 }
 
 fn write_workspace_member_config(
-  writer: &mut Writer<impl Write>,
+  output: &mut String,
   root: &WorkspaceMemberConfigContent,
   indent_text: &str,
 ) {
-  writer.write(indent_text);
-  writer.write("\"dependencies\": [\n");
-  for dep in &root.dependencies {
-    writer.write(indent_text);
-    writer.write("  \"");
-    writer.write(dep);
-    writer.write("\",\n");
+  output.push_str(indent_text);
+  output.push_str("\"dependencies\": [\n");
+  for (i, dep) in root.dependencies.iter().enumerate() {
+    if i > 0 {
+      output.push_str(",\n");
+    }
+    output.push_str(indent_text);
+    output.push_str("  \"");
+    output.push_str(dep);
+    output.push_str("\"");
   }
-  writer.write(indent_text);
-  writer.write("  ],\n");
-  writer.write(indent_text);
-  writer.write("  \"packageJson\": {\n");
-  writer.write(indent_text);
-  writer.write("    \"dependencies\": [\n");
-  for dep in &root.package_json.dependencies {
-    writer.write(indent_text);
-    writer.write("      \"");
-    writer.write(dep);
-    writer.write("\",\n");
+  output.push('\n');
+  output.push_str(indent_text);
+  output.push_str("],\n");
+  output.push_str(indent_text);
+  output.push_str("\"packageJson\": {\n");
+  output.push_str(indent_text);
+  output.push_str("  \"dependencies\": [\n");
+  for (i, dep) in root.package_json.dependencies.iter().enumerate() {
+    if i > 0 {
+      output.push_str(",\n");
+    }
+    output.push_str(indent_text);
+    output.push_str("    \"");
+    output.push_str(dep);
+    output.push_str("\"");
   }
-  writer.write(indent_text);
-  writer.write("],\n");
+  output.push('\n');
+  output.push_str(indent_text);
+  output.push_str("  ]");
 }

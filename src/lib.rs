@@ -13,7 +13,6 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-mod parser;
 mod printer;
 mod transforms;
 
@@ -99,6 +98,7 @@ pub struct IntegrityCheckFailedError {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct NpmPackageInfo {
   pub integrity: String,
+  #[serde(default)]
   pub dependencies: BTreeMap<String, String>,
 }
 
@@ -258,6 +258,7 @@ impl LockfileContent {
     #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
     struct RawNpmPackageInfo {
       pub integrity: String,
+      #[serde(default)]
       pub dependencies: Vec<String>,
     }
 
@@ -402,8 +403,9 @@ impl Lockfile {
     fn load_content(
       content: &str,
     ) -> Result<LockfileContent, LockfileErrorReason> {
-      let value = parser::parse_json(content)
-        .map_err(|err| LockfileErrorReason::ParseError(err))?;
+      let value: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(content)
+          .map_err(|err| LockfileErrorReason::ParseError(err))?;
       let version = value.get("version").and_then(|v| v.as_str());
       let was_version_4 = version == Some("4");
       let value = match version {
