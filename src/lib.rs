@@ -427,7 +427,7 @@ impl Lockfile {
         .map_err(|err| LockfileErrorReason::DeserializationError(err))?;
 
       // for now, force the version to be 3 when not 4
-      if !was_version_4 && !std::env::var("DENO_FUTURE").is_ok() {
+      if !was_version_4 {
         content.version = "3".to_string();
       }
 
@@ -450,17 +450,20 @@ impl Lockfile {
       filename: filename.display().to_string(),
       reason,
     })?;
-    let lockfile = Lockfile {
+    Ok(Lockfile {
       overwrite,
       has_content_changed: false,
       content,
       filename,
-    };
-    // temp
-    if std::env::var("DENO_FUTURE").is_ok() {
-      std::fs::write(&lockfile.filename, lockfile.as_json_string()).unwrap();
+    })
+  }
+
+  /// Force being v4 (ex. when using DENO_FUTURE).
+  pub fn force_v4(&mut self) {
+    if self.content.version != "4" {
+      self.content.version = "4".to_string();
+      self.has_content_changed = true;
     }
-    Ok(lockfile)
   }
 
   pub fn as_json_string(&self) -> String {
