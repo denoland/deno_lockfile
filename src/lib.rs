@@ -378,7 +378,7 @@ impl Lockfile {
     ) -> Result<LockfileContent, LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
-          .map_err(|err| LockfileErrorReason::ParseError(err))?;
+          .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
       let was_version_4 = version == Some("4");
       let value = match version {
@@ -397,7 +397,7 @@ impl Lockfile {
         }
       };
       let mut content = LockfileContent::from_json(value.into())
-        .map_err(|err| LockfileErrorReason::DeserializationError(err))?;
+        .map_err(LockfileErrorReason::DeserializationError)?;
 
       // for now, force the version to be 3 when not 4
       if !was_version_4 {

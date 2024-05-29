@@ -181,9 +181,10 @@ fn write_remote(output: &mut String, remote: &BTreeMap<String, String>) {
 }
 
 fn write_workspace(output: &mut String, workspace: &WorkspaceConfigContent) {
-  output.push_str(",\n  \"workspace\": {\n");
+  output.push_str(",\n  \"workspace\": {");
   write_workspace_member_config(output, &workspace.root, "    ");
   if !workspace.members.is_empty() {
+    comma_if_necessary(output);
     output.push_str("    \"members\": {\n");
     for (i, (key, value)) in workspace.members.iter().enumerate() {
       if i > 0 {
@@ -191,12 +192,12 @@ fn write_workspace(output: &mut String, workspace: &WorkspaceConfigContent) {
       }
       output.push_str("      \"");
       output.push_str(key);
-      output.push_str("\": {\n");
+      output.push_str("\": {");
       write_workspace_member_config(output, value, "        ");
       output.push_str("\n      }");
     }
   }
-  output.push_str("\n    }\n  }");
+  output.push_str("\n  }");
 }
 
 fn write_workspace_member_config(
@@ -204,34 +205,50 @@ fn write_workspace_member_config(
   root: &WorkspaceMemberConfigContent,
   indent_text: &str,
 ) {
-  output.push_str(indent_text);
-  output.push_str("\"dependencies\": [\n");
-  for (i, dep) in root.dependencies.iter().enumerate() {
-    if i > 0 {
-      output.push_str(",\n");
-    }
+  if !root.dependencies.is_empty() {
+    comma_if_necessary(output);
+    output.push('\n');
     output.push_str(indent_text);
-    output.push_str("  \"");
-    output.push_str(dep);
-    output.push_str("\"");
-  }
-  output.push('\n');
-  output.push_str(indent_text);
-  output.push_str("],\n");
-  output.push_str(indent_text);
-  output.push_str("\"packageJson\": {\n");
-  output.push_str(indent_text);
-  output.push_str("  \"dependencies\": [\n");
-  for (i, dep) in root.package_json.dependencies.iter().enumerate() {
-    if i > 0 {
-      output.push_str(",\n");
+    output.push_str("\"dependencies\": [\n");
+    for (i, dep) in root.dependencies.iter().enumerate() {
+      if i > 0 {
+        output.push_str(",\n");
+      }
+      output.push_str(indent_text);
+      output.push_str("  \"");
+      output.push_str(dep);
+      output.push_str("\"");
     }
+    output.push('\n');
     output.push_str(indent_text);
-    output.push_str("    \"");
-    output.push_str(dep);
-    output.push_str("\"");
+    output.push_str("]");
   }
-  output.push('\n');
-  output.push_str(indent_text);
-  output.push_str("  ]");
+  if !root.package_json.dependencies.is_empty() {
+    comma_if_necessary(output);
+    output.push('\n');
+    output.push_str(indent_text);
+    output.push_str("\"packageJson\": {\n");
+    output.push_str(indent_text);
+    output.push_str("  \"dependencies\": [\n");
+    for (i, dep) in root.package_json.dependencies.iter().enumerate() {
+      if i > 0 {
+        output.push_str(",\n");
+      }
+      output.push_str(indent_text);
+      output.push_str("    \"");
+      output.push_str(dep);
+      output.push('"');
+    }
+    output.push('\n');
+    output.push_str(indent_text);
+    output.push_str("  ]\n");
+    output.push_str(indent_text);
+    output.push('}')
+  }
+}
+
+fn comma_if_necessary(output: &mut String) {
+  if output.ends_with('}') || output.ends_with(']') {
+    output.push(',');
+  }
 }

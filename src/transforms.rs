@@ -65,7 +65,7 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
       let mut pkg_had_multiple_versions: HashMap<String, bool> =
         HashMap::with_capacity(npm.len());
       for id in npm.keys() {
-        let Some((name, _)) = extract_nv_from_id(&id) else {
+        let Some((name, _)) = extract_nv_from_id(id) else {
           continue; // corrupt
         };
         pkg_had_multiple_versions
