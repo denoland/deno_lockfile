@@ -46,22 +46,39 @@ pub enum TransformError {
 }
 
 pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
-  // note: although this function is found elsewhere in this repo,
+  // note: although these functions are found elsewhere in this repo,
   // it is purposefully duplicated here to ensure it never changes
   // for this transform
   fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
     if value.is_empty() {
       return None;
     }
-    let at_index = value[1..].find('@').map(|i| i + 1)?;
+    let at_index = value[1..].find('@')? + 1;
     let name = &value[..at_index];
     let version = &value[at_index + 1..];
     Some((name, version))
   }
 
+  fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
+    if value.len() < 5 {
+      return None;
+    }
+    // 5 is length of `jsr:@`/`npm:@`
+    let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
+      // no version requirement
+      // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
+      return Some((value, None));
+    };
+    let name = &value[..at_index];
+    let version = &value[at_index + 1..];
+    Some((name, Some(version)))
+  }
+
   json.insert("version".into(), "4".into());
   if let Some(Value::Object(mut packages)) = json.remove("packages") {
-    if let Some(Value::Object(mut npm)) = packages.remove("npm") {
+    if let Some((npm_key, Value::Object(mut npm))) =
+      packages.remove_entry("npm")
+    {
       let mut pkg_had_multiple_versions: HashMap<String, bool> =
         HashMap::with_capacity(npm.len());
       for id in npm.keys() {
@@ -108,7 +125,42 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
         }
         value.insert("dependencies".into(), new_deps.into());
       }
-      packages.insert("npm".into(), npm.into());
+      json.insert(npm_key, npm.into());
+    }
+
+    if let Some((jsr_key, Value::Object(mut jsr))) =
+      packages.remove_entry("jsr")
+    {
+      let mut pkg_had_multiple_specifiers: HashMap<&str, bool> = HashMap::new();
+      if let Some(Value::Object(specifiers)) = packages.get("specifiers") {
+        pkg_had_multiple_specifiers.reserve(specifiers.len());
+        for req in specifiers.keys() {
+          let Some((name, _)) = split_pkg_req(req) else {
+            continue; // corrupt
+          };
+          pkg_had_multiple_specifiers
+            .entry(name)
+            .and_modify(|v| *v = true)
+            .or_default();
+        }
+      }
+      for pkg in jsr.values_mut() {
+        let Some(Value::Array(deps)) = pkg.get_mut("dependencies") else {
+          continue;
+        };
+        for dep in deps.iter_mut() {
+          let Value::String(dep) = dep else {
+            continue;
+          };
+          let Some((name, _)) = split_pkg_req(dep) else {
+            continue;
+          };
+          if let Some(false) = pkg_had_multiple_specifiers.get(name) {
+            *dep = format!("{}", name);
+          }
+        }
+      }
+      json.insert(jsr_key, jsr.into());
     }
 
     // flatten packages into root

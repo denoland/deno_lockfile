@@ -32,7 +32,7 @@ pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
   }
 
   if !packages.jsr.is_empty() {
-    write_jsr(output, &packages.jsr);
+    write_jsr(output, &packages.jsr, &packages.specifiers);
   }
   if !packages.npm.is_empty() {
     write_npm(output, &packages.npm);
@@ -49,7 +49,38 @@ pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
   output.push_str("\n}\n");
 }
 
-fn write_jsr(output: &mut String, jsr: &BTreeMap<String, JsrPackageInfo>) {
+fn write_jsr(
+  output: &mut String,
+  jsr: &BTreeMap<String, JsrPackageInfo>,
+  specifiers: &BTreeMap<String, String>,
+) {
+  fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
+    if value.len() < 5 {
+      return None;
+    }
+    // 5 is length of `jsr:@`/`npm:@`
+    let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
+      // no version requirement
+      // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
+      return Some((value, None));
+    };
+    let name = &value[..at_index];
+    let version = &value[at_index + 1..];
+    Some((name, Some(version)))
+  }
+
+  let mut pkg_had_multiple_specifiers: HashMap<&str, bool> =
+    HashMap::with_capacity(specifiers.len());
+  for req in specifiers.keys() {
+    let Some((name, _)) = split_pkg_req(req) else {
+      continue; // corrupt
+    };
+    pkg_had_multiple_specifiers
+      .entry(name)
+      .and_modify(|v| *v = true)
+      .or_default();
+  }
+
   output.push_str(",\n  \"jsr\": {\n");
   for (i, (key, value)) in jsr.iter().enumerate() {
     if i > 0 {
@@ -68,7 +99,18 @@ fn write_jsr(output: &mut String, jsr: &BTreeMap<String, JsrPackageInfo>) {
           output.push_str(",\n");
         }
         output.push_str("        \"");
-        output.push_str(dep);
+        // todo: don't unwrap here
+        let (name, _req) = split_pkg_req(dep).unwrap();
+        let has_single_specifier = pkg_had_multiple_specifiers
+          .get(name)
+          .map(|had_multiple| !had_multiple)
+          .unwrap_or(false);
+        if has_single_specifier {
+          output.push_str(name);
+        } else {
+          output.push_str(dep);
+        }
+
         output.push('"');
       }
       output.push_str("\n      ]");
@@ -118,6 +160,7 @@ fn write_npm(output: &mut String, npm: &BTreeMap<String, NpmPackageInfo>) {
         if i > 0 {
           output.push_str(",\n");
         }
+        // todo(THIS PR): don't unwrap here
         let (name, version) = extract_nv_from_id(id).unwrap();
         output.push_str("        \"");
         if name == key {

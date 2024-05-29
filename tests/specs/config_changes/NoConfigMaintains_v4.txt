@@ -2,7 +2,7 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@scope/package_a": "jsr:@scope/package_a@0.0.1",
+    "jsr:@scope/package_a@^0.0": "jsr:@scope/package_a@0.0.1",
     "jsr:@scope/package_b": "jsr:@scope/package_b@0.0.1",
     "jsr:@scope/package_c": "jsr:@scope/package_c@0.0.1",
     "jsr:@scope/package_orphan": "jsr:@scope/package_orphan@0.0.1",
@@ -190,7 +190,7 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@scope/package_a": "jsr:@scope/package_a@0.0.1",
+    "jsr:@scope/package_a@^0.0": "jsr:@scope/package_a@0.0.1",
     "jsr:@scope/package_b": "jsr:@scope/package_b@0.0.1",
     "jsr:@scope/package_c": "jsr:@scope/package_c@0.0.1",
     "jsr:@scope/package_orphan": "jsr:@scope/package_orphan@0.0.1",

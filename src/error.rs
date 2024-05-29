@@ -47,6 +47,8 @@ pub enum DeserializationError {
   InvalidNpmPackageId(String),
   #[error("Invalid npm package dependency '{0}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
   InvalidNpmPackageDependency(String),
+  #[error("Invalid package specifier '{0}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
+  InvalidPackageSpecifier(String),
   #[error("npm package '{0}' was not found and could not have its version resolved. Lockfile may be corrupt.")]
   MissingPackage(String),
 }

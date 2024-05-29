@@ -228,8 +228,30 @@ impl LockfileContent {
       Some((name, version))
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+    fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
+      if value.len() < 5 {
+        return None;
+      }
+      // 5 is length of `jsr:@`/`npm:@`
+      let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
+        // no version requirement
+        // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
+        return Some((value, None));
+      };
+      let name = &value[..at_index];
+      let version = &value[at_index + 1..];
+      Some((name, Some(version)))
+    }
+
+    #[derive(Debug, Deserialize)]
     struct RawNpmPackageInfo {
+      pub integrity: String,
+      #[serde(default)]
+      pub dependencies: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawJsrPackageInfo {
       pub integrity: String,
       #[serde(default)]
       pub dependencies: Vec<String>,
@@ -261,67 +283,128 @@ impl LockfileContent {
         })
         .unwrap_or_else(|| "3".to_string()),
       packages: {
+        let specifiers: BTreeMap<String, String> =
+          deserialize_section(&mut json, "specifiers")?;
+        let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
         let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
           deserialize_section(&mut json, "npm")?;
-
-        // collect the versions
-        let mut version_by_dep_name: HashMap<String, String> =
-          HashMap::with_capacity(raw_npm.len());
-        for id in raw_npm.keys() {
-          let Some((name, version)) = extract_nv_from_id(id) else {
-            return Err(DeserializationError::InvalidNpmPackageId(
-              id.to_string(),
-            ));
-          };
-          version_by_dep_name.insert(name.to_string(), version.to_string());
-        }
-
-        // now go through and create the resolved npm package information
-        let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
-        for (key, value) in raw_npm {
-          let mut dependencies = BTreeMap::new();
-          for dep in value.dependencies {
-            let (unresolved_name, version) = match extract_nv_from_id(&dep) {
-              Some((name, version)) => (name, version),
-              None => match version_by_dep_name.get(&dep) {
-                Some(version) => (dep.as_str(), version.as_str()),
-                None => return Err(DeserializationError::MissingPackage(dep)),
-              },
+        if !raw_npm.is_empty() {
+          // collect the versions
+          let mut version_by_dep_name: HashMap<String, String> =
+            HashMap::with_capacity(raw_npm.len());
+          for id in raw_npm.keys() {
+            let Some((name, version)) = extract_nv_from_id(id) else {
+              return Err(DeserializationError::InvalidNpmPackageId(
+                id.to_string(),
+              ));
             };
-            let (key, package_name) = match unresolved_name.find('@') {
-              // 0 is scoped pkg
-              None | Some(0) => (unresolved_name, unresolved_name),
-              Some(at_index) => {
-                // ex. key@npm:package-a
-                let (key, package_name) = unresolved_name.split_at(at_index);
-                let package_name = match package_name.strip_prefix("npm:") {
-                  Some(package_name) => package_name,
-                  None => {
-                    return Err(
-                      DeserializationError::InvalidNpmPackageDependency(
-                        dep.to_string(),
-                      ),
-                    );
-                  }
-                };
-                (key, package_name)
-              }
-            };
-            dependencies
-              .insert(key.to_string(), format!("{}@{}", package_name, version));
+            version_by_dep_name.insert(name.to_string(), version.to_string());
           }
-          npm.insert(
-            key,
-            NpmPackageInfo {
-              integrity: value.integrity,
-              dependencies,
-            },
-          );
+
+          // now go through and create the resolved npm package information
+          for (key, value) in raw_npm {
+            let mut dependencies = BTreeMap::new();
+            for dep in value.dependencies {
+              let (unresolved_name, version) = match extract_nv_from_id(&dep) {
+                Some((name, version)) => (name, version),
+                None => match version_by_dep_name.get(&dep) {
+                  Some(version) => (dep.as_str(), version.as_str()),
+                  None => {
+                    return Err(DeserializationError::MissingPackage(dep))
+                  }
+                },
+              };
+              let (key, package_name) = match unresolved_name.find('@') {
+                // 0 is scoped pkg
+                None | Some(0) => (unresolved_name, unresolved_name),
+                Some(at_index) => {
+                  // ex. key@npm:package-a
+                  let (key, package_name) = unresolved_name.split_at(at_index);
+                  let package_name = match package_name.strip_prefix("npm:") {
+                    Some(package_name) => package_name,
+                    None => {
+                      return Err(
+                        DeserializationError::InvalidNpmPackageDependency(
+                          dep.to_string(),
+                        ),
+                      );
+                    }
+                  };
+                  (key, package_name)
+                }
+              };
+              dependencies.insert(
+                key.to_string(),
+                format!("{}@{}", package_name, version),
+              );
+            }
+            npm.insert(
+              key,
+              NpmPackageInfo {
+                integrity: value.integrity,
+                dependencies,
+              },
+            );
+          }
+        }
+        let mut jsr: BTreeMap<String, JsrPackageInfo> = Default::default();
+        {
+          let raw_jsr: BTreeMap<String, RawJsrPackageInfo> =
+            deserialize_section(&mut json, "jsr")?;
+          if !raw_jsr.is_empty() {
+            // collect the specifier information
+            let mut to_resolved_specifiers: HashMap<&str, Option<&str>> =
+              HashMap::with_capacity(specifiers.len() * 2);
+            // first insert the specifiers that should be left alone
+            for specifier in specifiers.keys() {
+              to_resolved_specifiers.insert(&specifier, None);
+            }
+            // then insert the mapping specifiers
+            for specifier in specifiers.keys() {
+              let Some((name, req)) = split_pkg_req(specifier) else {
+                return Err(DeserializationError::InvalidPackageSpecifier(
+                  specifier.to_string(),
+                ));
+              };
+              if req.is_some() {
+                let entry = to_resolved_specifiers.entry(name);
+                // if an entry is occupied that means there's multiple specifiers
+                // for the same name, such as one without a req, so ignore inserting
+                // here
+                if let std::collections::hash_map::Entry::Vacant(entry) = entry
+                {
+                  entry.insert(Some(specifier));
+                }
+              }
+            }
+
+            // now go through the dependencies mapping to the new ones
+            for (key, value) in raw_jsr {
+              let mut dependencies = BTreeSet::new();
+              for dep in value.dependencies {
+                let Some(maybe_specifier) =
+                  to_resolved_specifiers.get(dep.as_str())
+                else {
+                  todo!();
+                };
+                dependencies.insert(
+                  maybe_specifier.map(|s| s.to_string()).unwrap_or(dep),
+                );
+              }
+              jsr.insert(
+                key,
+                JsrPackageInfo {
+                  integrity: value.integrity,
+                  dependencies,
+                },
+              );
+            }
+          }
         }
 
         PackagesContent {
-          jsr: deserialize_section(&mut json, "jsr")?,
-          specifiers: deserialize_section(&mut json, "specifiers")?,
+          jsr,
+          specifiers,
           npm,
         }
       },
