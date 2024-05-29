@@ -3,6 +3,7 @@
 mod error;
 mod graphs;
 
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -19,9 +20,6 @@ mod transforms;
 pub use error::DeserializationError;
 pub use error::LockfileError;
 pub use error::LockfileErrorReason;
-use sha2::Digest;
-use sha2::Sha256;
-use thiserror::Error;
 
 use crate::graphs::LockfilePackageGraph;
 
@@ -57,45 +55,20 @@ pub struct WorkspaceMemberConfig {
   pub package_json_deps: BTreeSet<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpmPackageLockfileInfo {
-  pub display_id: String,
   pub serialized_id: String,
   pub integrity: String,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpmPackageDependencyLockfileInfo {
   pub name: String,
   pub id: String,
 }
 
-fn gen_checksum(v: &[u8]) -> String {
-  let mut hasher = Sha256::new();
-  hasher.update(v);
-  format!("{:x}", hasher.finalize())
-}
-
-#[derive(Debug, Error)]
-#[error("Integrity check failed for package: \"{package_display_id}\". Unable to verify that the package
-is the same as when the lockfile was generated.
-
-Actual: {actual}
-Expected: {expected}
-
-This could be caused by:
-  * the lock file may be corrupt
-  * the source itself may be corrupt
-
-Use \"--lock-write\" flag to regenerate the lockfile at \"{filename}\".",
-)]
-pub struct IntegrityCheckFailedError {
-  pub package_display_id: String,
-  pub actual: String,
-  pub expected: String,
-  pub filename: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct NpmPackageInfo {
   pub integrity: String,
   #[serde(default)]
@@ -665,139 +638,123 @@ impl Lockfile {
     Some(self.as_json_string().into_bytes())
   }
 
-  // TODO(bartlomieju): this function should return an error instead of a bool,
-  // but it requires changes to `deno_graph`'s `Locker`.
-  pub fn check_or_insert_remote(
-    &mut self,
-    specifier: &str,
-    code: &str,
-  ) -> bool {
-    if !(specifier.starts_with("http:") || specifier.starts_with("https:")) {
-      return true;
-    }
-    if self.overwrite {
-      // In case --lock-write is specified check always passes
-      self.insert(specifier, code);
-      true
-    } else {
-      self.check_or_insert(specifier, code)
-    }
+  pub fn remote(&self) -> &BTreeMap<String, String> {
+    &self.content.remote
   }
 
-  pub fn check_or_insert_npm_package(
-    &mut self,
-    package_info: NpmPackageLockfileInfo,
-  ) -> Result<(), IntegrityCheckFailedError> {
-    if self.overwrite {
-      // In case --lock-write is specified check always passes
-      self.insert_npm_package(package_info);
-      Ok(())
-    } else {
-      self.check_or_insert_npm(package_info)
-    }
-  }
-
-  /// Checks the given module is included, if so verify the checksum. If module
-  /// is not included, insert it.
-  fn check_or_insert(&mut self, specifier: &str, code: &str) -> bool {
-    if let Some(lockfile_checksum) = self.content.remote.get(specifier) {
-      let compiled_checksum = gen_checksum(code.as_bytes());
-      lockfile_checksum == &compiled_checksum
-    } else {
-      self.insert(specifier, code);
-      true
-    }
-  }
-
-  fn insert(&mut self, specifier: &str, code: &str) {
-    let checksum = gen_checksum(code.as_bytes());
-    self.content.remote.insert(specifier.to_string(), checksum);
-    self.has_content_changed = true;
-  }
-
-  fn check_or_insert_npm(
-    &mut self,
-    package: NpmPackageLockfileInfo,
-  ) -> Result<(), IntegrityCheckFailedError> {
-    if let Some(package_info) =
-      self.content.packages.npm.get(&package.serialized_id)
-    {
-      let actual = package_info.integrity.as_str();
-      let expected = &package.integrity;
-      if actual != expected {
-        return Err(IntegrityCheckFailedError {
-          package_display_id: package.display_id,
-          filename: self.filename.display().to_string(),
-          actual: actual.to_string(),
-          expected: expected.to_string(),
-        });
+  /// Inserts a remote specifier into the lockfile replacing the existing package if it exists.
+  ///
+  /// WARNING: It is up to the caller to ensure checksums of remote modules are
+  /// valid before it is inserted here.
+  pub fn insert_remote(&mut self, specifier: String, hash: String) {
+    let entry = self.content.remote.entry(specifier);
+    match entry {
+      Entry::Vacant(entry) => {
+        entry.insert(hash);
+        self.has_content_changed = true;
       }
-    } else {
-      self.insert_npm_package(package);
+      Entry::Occupied(mut entry) => {
+        if entry.get() != &hash {
+          entry.insert(hash);
+          self.has_content_changed = true;
+        }
+      }
     }
-
-    Ok(())
   }
 
-  fn insert_npm_package(&mut self, package_info: NpmPackageLockfileInfo) {
+  /// Inserts an npm package into the lockfile replacing the existing package if it exists.
+  ///
+  /// WARNING: It is up to the caller to ensure checksums of packages are
+  /// valid before it is inserted here.
+  pub fn insert_npm_package(&mut self, package_info: NpmPackageLockfileInfo) {
     let dependencies = package_info
       .dependencies
-      .iter()
-      .map(|dep| (dep.name.to_string(), dep.id.to_string()))
+      .into_iter()
+      .map(|dep| (dep.name, dep.id))
       .collect::<BTreeMap<String, String>>();
 
-    self.content.packages.npm.insert(
-      package_info.serialized_id.to_string(),
-      NpmPackageInfo {
-        integrity: package_info.integrity,
-        dependencies,
-      },
-    );
-    self.has_content_changed = true;
+    let entry = self.content.packages.npm.entry(package_info.serialized_id);
+    let package_info = NpmPackageInfo {
+      integrity: package_info.integrity,
+      dependencies,
+    };
+    match entry {
+      Entry::Vacant(entry) => {
+        entry.insert(package_info);
+        self.has_content_changed = true;
+      }
+      Entry::Occupied(mut entry) => {
+        if *entry.get() != package_info {
+          entry.insert(package_info);
+          self.has_content_changed = true;
+        }
+      }
+    }
   }
 
+  /// Inserts a package specifier into the lockfile.
   pub fn insert_package_specifier(
     &mut self,
     serialized_package_req: String,
     serialized_package_id: String,
   ) {
-    let maybe_prev = self
+    let entry = self
       .content
       .packages
       .specifiers
-      .get(&serialized_package_req);
-
-    if maybe_prev.is_none() || maybe_prev != Some(&serialized_package_id) {
-      self.has_content_changed = true;
-      self
-        .content
-        .packages
-        .specifiers
-        .insert(serialized_package_req, serialized_package_id);
+      .entry(serialized_package_req);
+    match entry {
+      Entry::Vacant(entry) => {
+        entry.insert(serialized_package_id);
+        self.has_content_changed = true;
+      }
+      Entry::Occupied(mut entry) => {
+        if *entry.get() != serialized_package_id {
+          entry.insert(serialized_package_id);
+          self.has_content_changed = true;
+        }
+      }
     }
   }
 
-  pub fn insert_package(
+  /// Inserts a JSR package into the lockfile replacing the existing package's integrity
+  /// if they differ.
+  ///
+  /// WARNING: It is up to the caller to ensure checksums of packages are
+  /// valid before it is inserted here.
+  pub fn insert_package(&mut self, name: String, integrity: String) {
+    let entry = self.content.packages.jsr.entry(name);
+    match entry {
+      Entry::Vacant(entry) => {
+        entry.insert(JsrPackageInfo {
+          integrity,
+          dependencies: Default::default(),
+        });
+        self.has_content_changed = true;
+      }
+      Entry::Occupied(mut entry) => {
+        if *entry.get().integrity != integrity {
+          entry.get_mut().integrity = integrity;
+          self.has_content_changed = true;
+        }
+      }
+    }
+  }
+
+  /// Adds package dependencies of a JSR package. This is only used to track
+  /// when packages can be removed from the lockfile.
+  pub fn add_package_deps(
     &mut self,
-    name: String,
-    integrity: String,
+    name: &str,
     deps: impl Iterator<Item = String>,
   ) {
-    let mut is_new_insert = false;
-    let package = self.content.packages.jsr.entry(name).or_insert_with(|| {
-      is_new_insert = true;
-      JsrPackageInfo {
-        integrity,
-        dependencies: Default::default(),
+    if let Some(pkg) = self.content.packages.jsr.get_mut(name) {
+      let start_count = pkg.dependencies.len();
+      pkg.dependencies.extend(deps);
+      let end_count = pkg.dependencies.len();
+      if start_count != end_count {
+        self.has_content_changed = true;
       }
-    });
-
-    let start_count = package.dependencies.len();
-    package.dependencies.extend(deps);
-    let end_count = package.dependencies.len();
-
-    if is_new_insert || start_count != end_count {
-      self.has_content_changed = true;
     }
   }
 
@@ -806,11 +763,18 @@ impl Lockfile {
       return;
     }
 
-    let maybe_prev = self.content.redirects.get(&from);
-
-    if maybe_prev.is_none() || maybe_prev != Some(&to) {
-      self.has_content_changed = true;
-      self.content.redirects.insert(from, to);
+    let entry = self.content.redirects.entry(from);
+    match entry {
+      Entry::Vacant(entry) => {
+        entry.insert(to);
+        self.has_content_changed = true;
+      }
+      Entry::Occupied(mut entry) => {
+        if *entry.get() != to {
+          entry.insert(to);
+          self.has_content_changed = true;
+        }
+      }
     }
   }
 }
@@ -899,9 +863,9 @@ mod tests {
   fn new_lockfile_from_file_and_insert() {
     let mut lockfile = setup(false).unwrap();
 
-    lockfile.insert(
-      "https://deno.land/std@0.71.0/io/util.ts",
-      "Here is some source code",
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/io/util.ts".to_string(),
+      "checksum-1".to_string(),
     );
 
     let remote = lockfile.content.remote;
@@ -922,17 +886,17 @@ mod tests {
     // true since overwrite was true
     assert!(lockfile.resolve_write_bytes().is_some());
 
-    lockfile.insert(
-      "https://deno.land/std@0.71.0/textproto/mod.ts",
-      "Here is some source code",
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
+      "checksum-1".to_string(),
     );
-    lockfile.insert(
-      "https://deno.land/std@0.71.0/io/util.ts",
-      "more source code here",
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/io/util.ts".to_string(),
+      "checksum-2".to_string(),
     );
-    lockfile.insert(
-      "https://deno.land/std@0.71.0/async/delay.ts",
-      "this source is really exciting",
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/async/delay.ts".to_string(),
+      "checksum-3".to_string(),
     );
 
     let bytes = lockfile.resolve_write_bytes().unwrap();
@@ -944,8 +908,7 @@ mod tests {
       object
         .get("https://deno.land/std@0.71.0/textproto/mod.ts")
         .and_then(|v| v.as_str()),
-      // sha-256 hash of the source 'Here is some source code'
-      Some("fedebba9bb82cce293196f54b21875b649e457f0eaf55556f1e318204947a28f")
+      Some("checksum-1")
     );
 
     // confirm that keys are sorted alphabetically
@@ -969,29 +932,32 @@ mod tests {
     // none since overwrite was false and there's no changes
     assert!(lockfile.resolve_write_bytes().is_none());
 
-    lockfile.insert(
-      "https://deno.land/std@0.71.0/textproto/mod.ts",
-      "Here is some source code",
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
+      "checksum-1".to_string(),
     );
+    assert!(lockfile.has_content_changed);
 
-    let check_true = lockfile.check_or_insert_remote(
-      "https://deno.land/std@0.71.0/textproto/mod.ts",
-      "Here is some source code",
+    lockfile.has_content_changed = false;
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
+      "checksum-1".to_string(),
     );
-    assert!(check_true);
+    assert!(!lockfile.has_content_changed);
 
-    let check_false = lockfile.check_or_insert_remote(
-      "https://deno.land/std@0.71.0/textproto/mod.ts",
-      "Here is some NEW source code",
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
+      "checksum-new".to_string(),
     );
-    assert!(!check_false);
+    assert!(lockfile.has_content_changed);
+    lockfile.has_content_changed = false;
 
     // Not present in lockfile yet, should be inserted and check passed.
-    let check_true = lockfile.check_or_insert_remote(
-      "https://deno.land/std@0.71.0/http/file_server.ts",
-      "This is new Source code",
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/http/file_server.ts".to_string(),
+      "checksum-1".to_string(),
     );
-    assert!(check_true);
+    assert!(lockfile.has_content_changed);
 
     // true since there were changes
     assert!(lockfile.resolve_write_bytes().is_some());
@@ -1001,44 +967,47 @@ mod tests {
   fn check_or_insert_lockfile_npm() {
     let mut lockfile = setup(false).unwrap();
 
+    // already in lockfile
     let npm_package = NpmPackageLockfileInfo {
-      display_id: "nanoid@3.3.4".to_string(),
       serialized_id: "nanoid@3.3.4".to_string(),
       integrity: "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string(),
       dependencies: vec![],
     };
-    let check_ok = lockfile.check_or_insert_npm_package(npm_package);
-    assert!(check_ok.is_ok());
+    lockfile.insert_npm_package(npm_package);
+    assert!(!lockfile.has_content_changed);
 
+    // insert package that exists already, but has slightly different properties
     let npm_package = NpmPackageLockfileInfo {
-      display_id: "picocolors@1.0.0".to_string(),
       serialized_id: "picocolors@1.0.0".to_string(),
       integrity: "sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string(),
       dependencies: vec![],
     };
-    // Integrity is borked in the loaded lockfile
-    let check_err = lockfile.check_or_insert_npm_package(npm_package);
-    assert!(check_err.is_err());
+    lockfile.insert_npm_package(npm_package);
+    assert!(lockfile.has_content_changed);
 
+    lockfile.has_content_changed = false;
     let npm_package = NpmPackageLockfileInfo {
-      display_id: "source-map-js@1.0.2".to_string(),
       serialized_id: "source-map-js@1.0.2".to_string(),
       integrity: "sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string(),
       dependencies: vec![],
     };
-    // Not present in lockfile yet, should be inserted and check passed.
-    let check_ok = lockfile.check_or_insert_npm_package(npm_package);
-    assert!(check_ok.is_ok());
+    // Not present in lockfile yet, should be inserted
+    lockfile.insert_npm_package(npm_package.clone());
+    assert!(lockfile.has_content_changed);
+    lockfile.has_content_changed = false;
+
+    // this one should not say the lockfile has changed because it's the same
+    lockfile.insert_npm_package(npm_package);
+    assert!(!lockfile.has_content_changed);
 
     let npm_package = NpmPackageLockfileInfo {
-      display_id: "source-map-js@1.0.2".to_string(),
       serialized_id: "source-map-js@1.0.2".to_string(),
       integrity: "sha512-foobar".to_string(),
       dependencies: vec![],
     };
-    // Now present in lockfile, should file due to borked integrity
-    let check_err = lockfile.check_or_insert_npm_package(npm_package);
-    assert!(check_err.is_err());
+    // Now present in lockfile, should be changed due to different integrity
+    lockfile.insert_npm_package(npm_package);
+    assert!(lockfile.has_content_changed);
   }
 
   #[test]
@@ -1224,29 +1193,17 @@ mod tests {
       Lockfile::with_lockfile_content(file_path, content, false).unwrap();
 
     assert!(!lockfile.has_content_changed);
-    lockfile.insert_package(
-      "dep".to_string(),
-      "integrity".to_string(),
-      vec![].into_iter(),
-    );
+    lockfile.insert_package("dep".to_string(), "integrity".to_string());
     // has changed even though it was empty
     assert!(lockfile.has_content_changed);
 
     // now try inserting the same package
     lockfile.has_content_changed = false;
-    lockfile.insert_package(
-      "dep".to_string(),
-      "integrity".to_string(),
-      vec![].into_iter(),
-    );
+    lockfile.insert_package("dep".to_string(), "integrity".to_string());
     assert!(!lockfile.has_content_changed);
 
     // now with new deps
-    lockfile.insert_package(
-      "dep".to_string(),
-      "integrity".to_string(),
-      vec!["dep2".to_string()].into_iter(),
-    );
+    lockfile.add_package_deps("dep", vec!["dep2".to_string()].into_iter());
     assert!(lockfile.has_content_changed);
   }
 
