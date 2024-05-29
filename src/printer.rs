@@ -9,8 +9,6 @@ use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
 
-// Note: This is temporary until we upgrade to v4
-
 // todo: investigate json escaping, which might not be necessary here
 pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
   // this attempts to be heavily optimized for performance and thus hardcodes indentation
@@ -28,7 +26,7 @@ pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
       output.push_str(key);
       output.push_str("\": \"");
       output.push_str(value);
-      output.push_str("\"");
+      output.push('"');
     }
     output.push_str("\n  }");
   }
@@ -62,7 +60,7 @@ fn write_jsr(output: &mut String, jsr: &BTreeMap<String, JsrPackageInfo>) {
     output.push_str("\": {\n");
     output.push_str("      \"integrity\": \"");
     output.push_str(&value.integrity);
-    output.push_str("\"");
+    output.push('"');
     if !value.dependencies.is_empty() {
       output.push_str(",\n      \"dependencies\": [\n");
       for (i, dep) in value.dependencies.iter().enumerate() {
@@ -71,7 +69,7 @@ fn write_jsr(output: &mut String, jsr: &BTreeMap<String, JsrPackageInfo>) {
         }
         output.push_str("        \"");
         output.push_str(dep);
-        output.push_str("\"");
+        output.push('"');
       }
       output.push_str("\n      ]");
     }
@@ -94,7 +92,7 @@ fn write_npm(output: &mut String, npm: &BTreeMap<String, NpmPackageInfo>) {
   let mut pkg_had_multiple_versions: HashMap<&str, bool> =
     HashMap::with_capacity(npm.len());
   for id in npm.keys() {
-    let Some((name, _)) = extract_nv_from_id(&id) else {
+    let Some((name, _)) = extract_nv_from_id(id) else {
       continue; // corrupt
     };
     pkg_had_multiple_versions
@@ -141,7 +139,7 @@ fn write_npm(output: &mut String, npm: &BTreeMap<String, NpmPackageInfo>) {
           output.push('@');
           output.push_str(version);
         }
-        output.push_str("\"");
+        output.push('"');
       }
       output.push_str("\n      ]");
     }
@@ -217,11 +215,11 @@ fn write_workspace_member_config(
       output.push_str(indent_text);
       output.push_str("  \"");
       output.push_str(dep);
-      output.push_str("\"");
+      output.push('"');
     }
     output.push('\n');
     output.push_str(indent_text);
-    output.push_str("]");
+    output.push(']');
   }
   if !root.package_json.dependencies.is_empty() {
     comma_if_necessary(output);

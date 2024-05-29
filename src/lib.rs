@@ -487,13 +487,11 @@ impl Lockfile {
     // if specified, don't modify the package.json dependencies
     if options.no_npm || options.no_config {
       if options.config.root.package_json_deps.is_empty() {
-        options.config.root.package_json_deps = self
-          .content
-          .workspace
+        options
+          .config
           .root
-          .package_json
-          .dependencies
-          .clone();
+          .package_json_deps
+          .clone_from(&self.content.workspace.root.package_json.dependencies);
       }
       for (key, value) in options.config.members.iter_mut() {
         if value.package_json_deps.is_empty() {
@@ -509,8 +507,11 @@ impl Lockfile {
     }
     if options.no_config {
       if options.config.root.dependencies.is_empty() {
-        options.config.root.dependencies =
-          self.content.workspace.root.dependencies.clone();
+        options
+          .config
+          .root
+          .dependencies
+          .clone_from(&self.content.workspace.root.dependencies);
       }
       for (key, value) in options.config.members.iter_mut() {
         if value.dependencies.is_empty() {
@@ -524,7 +525,7 @@ impl Lockfile {
         }
       }
       for (key, value) in self.content.workspace.members.iter() {
-        if options.config.members.get(key).is_none() {
+        if !options.config.members.contains_key(key) {
           options.config.members.insert(
             key.clone(),
             WorkspaceMemberConfig {
