@@ -14,30 +14,7 @@ pub struct ConfigChangeSpec {
 }
 
 impl ConfigChangeSpec {
-  pub fn collect_in_dir(dir_path: &Path) -> Vec<ConfigChangeSpec> {
-    let files = collect_files_in_dir_recursive(dir_path);
-    let only_files = files
-      .iter()
-      .filter(|file| {
-        file.path.to_string_lossy().to_lowercase().contains("_only")
-      })
-      .cloned()
-      .collect::<Vec<_>>();
-    let files = if only_files.is_empty() {
-      files
-    } else {
-      if std::env::var("CI").is_ok() {
-        panic!("Cannot use _only files on CI");
-      }
-      only_files
-    };
-    files
-      .into_iter()
-      .map(|file| ConfigChangeSpec::parse(file.path.clone(), &file.text))
-      .collect()
-  }
-
-  fn parse(path: PathBuf, text: &str) -> Self {
+  pub fn parse(path: PathBuf, text: &str) -> Self {
     fn take_header<'a>(lines: &mut impl Iterator<Item = &'a str>) -> String {
       lines
         .next()
