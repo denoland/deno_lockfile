@@ -10,8 +10,6 @@ use deno_lockfile::WorkspaceMemberConfig;
 use deno_lockfile::Lockfile;
 use deno_lockfile::SetWorkspaceConfigOptions;
 
-mod helpers;
-
 #[test]
 fn adding_workspace_does_not_cause_content_changes() {
   // should maintain the has_content_changed flag when lockfile empty

@@ -37,21 +37,12 @@ fn main() {
   )
 }
 
-// The `test` object only contains the test name and
-// the path to the file on the file system which you can
-// then use to determine how to run your test
 fn run_test(test: &CollectedTest) {
-  // Properties:
-  // * `test.name` - Fully resolved name of the test.
-  // * `test.path` - Path to the test file this test is associated with.
-  // * `test.data` - Data associated with the test that may have been set
-  //                 by the collection strategy.
-
-  // helper function to get the text
-  let file_text = test.read_to_string().unwrap();
-
-  // now you may do whatever with the file text and
-  // assert it using assert_eq! or whatever
+  if test.name.starts_with("specs::config_changes::") {
+    config_changes_test(test);
+  } else {
+    panic!("Unknown test: {}", test.name);
+  }
 }
 
 fn config_changes_test(test: &CollectedTest) {
