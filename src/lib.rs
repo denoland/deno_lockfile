@@ -305,7 +305,7 @@ impl LockfileContent {
           for (key, value) in raw_npm {
             let mut dependencies = BTreeMap::new();
             for dep in value.dependencies {
-              let (unresolved_name, version) = match extract_nv_from_id(&dep) {
+              let (left, right) = match extract_nv_from_id(&dep) {
                 Some((name, version)) => (name, version),
                 None => match version_by_dep_name.get(&dep) {
                   Some(version) => (dep.as_str(), version.as_str()),
@@ -314,25 +314,25 @@ impl LockfileContent {
                   }
                 },
               };
-              let (key, package_name) = match unresolved_name.find('@') {
-                // 0 is scoped pkg
-                None | Some(0) => (unresolved_name, unresolved_name),
-                Some(at_index) => {
-                  // ex. key@npm:package-a
-                  let (key, package_name) = unresolved_name.split_at(at_index);
-                  let package_name = match package_name.strip_prefix("npm:") {
-                    Some(package_name) => package_name,
-                    None => {
-                      return Err(
-                        DeserializationError::InvalidNpmPackageDependency(
-                          dep.to_string(),
-                        ),
-                      );
+              let (key, package_name, version) =
+                match right.strip_prefix("npm:") {
+                  Some(right) => {
+                    // ex. key@npm:package-a@version
+                    match extract_nv_from_id(right) {
+                      Some((package_name, version)) => {
+                        (left, package_name, version)
+                      }
+                      None => {
+                        return Err(
+                          DeserializationError::InvalidNpmPackageDependency(
+                            dep.to_string(),
+                          ),
+                        );
+                      }
                     }
-                  };
-                  (key, package_name)
-                }
-              };
+                  }
+                  None => (left, left, right),
+                };
               dependencies.insert(
                 key.to_string(),
                 format!("{}@{}", package_name, version),
