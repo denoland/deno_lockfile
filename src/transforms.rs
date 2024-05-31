@@ -156,7 +156,7 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
             continue;
           };
           if let Some(false) = pkg_had_multiple_specifiers.get(name) {
-            *dep = format!("{}", name);
+            *dep = name.to_string();
           }
         }
       }

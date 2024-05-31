@@ -357,7 +357,7 @@ impl LockfileContent {
               HashMap::with_capacity(specifiers.len() * 2);
             // first insert the specifiers that should be left alone
             for specifier in specifiers.keys() {
-              to_resolved_specifiers.insert(&specifier, None);
+              to_resolved_specifiers.insert(specifier, None);
             }
             // then insert the mapping specifiers
             for specifier in specifiers.keys() {
