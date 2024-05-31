@@ -16,6 +16,8 @@ use file_test_runner::collection::CollectedTest;
 use file_test_runner::RunOptions;
 use file_test_runner::TestResult;
 use helpers::ConfigChangeSpec;
+use helpers::SpecSection;
+use pretty_assertions::assert_eq;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -40,6 +42,8 @@ fn main() {
 fn run_test(test: &CollectedTest) {
   if test.name.starts_with("specs::config_changes::") {
     config_changes_test(test);
+  } else if test.name.starts_with("specs::transforms::") {
+    transforms_test(test);
   } else {
     panic!("Unknown test: {}", test.name);
   }
@@ -71,6 +75,7 @@ fn config_changes_test(test: &CollectedTest) {
     #[serde(default)]
     members: BTreeMap<String, WorkspaceMemberConfigContent>,
   }
+
   impl WorkspaceConfigContent {
     fn into_workspace_config(self) -> WorkspaceConfig {
       WorkspaceConfig {
@@ -96,17 +101,16 @@ fn config_changes_test(test: &CollectedTest) {
   }
 
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
-  let mut spec =
-    ConfigChangeSpec::parse(test.path.clone(), &test.read_to_string().unwrap());
-  let mut config_file = Lockfile::with_lockfile_content(
-    spec.path.with_extension("lock"),
+  let mut spec = ConfigChangeSpec::parse(&test.read_to_string().unwrap());
+  let mut lockfile = Lockfile::with_lockfile_content(
+    test.path.with_extension("lock"),
     &spec.original_text.text,
     false,
   )
   .unwrap();
   for change_and_output in &mut spec.change_and_outputs {
     // setting the new workspace config should change the has_content_changed flag
-    config_file.has_content_changed = false;
+    lockfile.has_content_changed = false;
     let config = serde_json::from_str::<WorkspaceConfigContent>(
       &change_and_output.change.text,
     )
@@ -114,44 +118,80 @@ fn config_changes_test(test: &CollectedTest) {
     .into_workspace_config();
     let no_npm = change_and_output.change.title.contains("--no-npm");
     let no_config = change_and_output.change.title.contains("--no-config");
-    config_file.set_workspace_config(SetWorkspaceConfigOptions {
+    lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config,
       no_npm,
       config: config.clone(),
     });
     assert_eq!(
-      config_file.has_content_changed,
+      lockfile.has_content_changed,
       !change_and_output.change.title.contains("no change"),
       "Failed for {}",
       change_and_output.change.title,
     );
 
     // now try resetting it and the flag should remain the same
-    config_file.has_content_changed = false;
-    config_file.set_workspace_config(SetWorkspaceConfigOptions {
+    lockfile.has_content_changed = false;
+    lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config,
       no_npm,
       config: config.clone(),
     });
-    assert!(!config_file.has_content_changed);
+    assert!(!lockfile.has_content_changed);
 
     let expected_text = change_and_output.output.text.clone();
-    let actual_text = config_file.as_json_string();
+    let actual_text = lockfile.as_json_string();
     if is_update {
       change_and_output.output.text = actual_text;
     } else {
       assert_eq!(
         actual_text.trim(),
         expected_text.trim(),
-        "Failed for: {} - {}",
-        spec.path.display(),
+        "Failed for: {}",
         change_and_output.change.title,
       );
     }
-    verify_packages_content(&config_file.content.packages);
+    verify_packages_content(&lockfile.content.packages);
   }
   if is_update {
-    std::fs::write(&spec.path, spec.emit()).unwrap();
+    std::fs::write(&test.path, spec.emit()).unwrap();
+  }
+}
+
+fn transforms_test(test: &CollectedTest) {
+  let text = test.read_to_string().unwrap();
+  let mut sections = SpecSection::parse_many(&text);
+  assert_eq!(sections.len(), 2);
+  let original_section = sections.remove(0);
+  let mut expected_section = sections.remove(0);
+  let mut lockfile = Lockfile::with_lockfile_content(
+    test.path.with_extension("lock"),
+    &original_section.text,
+    false,
+  )
+  .unwrap();
+  let original_lockfile = lockfile.clone();
+  lockfile.force_v4();
+  let actual_text = lockfile.as_json_string();
+  let is_update = std::env::var("UPDATE") == Ok("1".to_string());
+  if is_update {
+    expected_section.text = actual_text.trim().to_string();
+    std::fs::write(
+      &test.path,
+      format!("{}\n{}\n", original_section.emit(), expected_section.emit()),
+    )
+    .unwrap();
+  } else {
+    assert_eq!(actual_text.trim(), expected_section.text.trim());
+    // if this was v3, ensure that an emit of the original v3 lockfile
+    // still emits the same way
+    if original_section.text.contains("\"version\": \"3\"") {
+      assert_eq!(
+        original_lockfile.as_json_string().trim(),
+        original_section.text.trim(),
+        "original emit failed"
+      );
+    }
   }
 }
 
