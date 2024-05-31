@@ -27,7 +27,7 @@ fn main() {
   collect_and_run_tests(
     CollectOptions {
       base: "tests/specs".into(),
-      strategy: Box::new(TestPerFileCollectionStrategy::default()),
+      strategy: Box::<TestPerFileCollectionStrategy>::default(),
       filter_override: None,
     },
     RunOptions { parallel: true },
