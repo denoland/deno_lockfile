@@ -175,10 +175,10 @@ fn transforms_test(test: &CollectedTest) {
   let actual_text = lockfile.as_json_string();
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   if is_update {
-    expected_section.text = actual_text.trim().to_string();
+    expected_section.text = actual_text;
     std::fs::write(
       &test.path,
-      format!("{}\n{}\n", original_section.emit(), expected_section.emit()),
+      format!("{}{}", original_section.emit(), expected_section.emit()),
     )
     .unwrap();
   } else {
