@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2024 the Deno authors. MIT license.
 
 mod error;
 mod graphs;
@@ -6,15 +6,20 @@ mod graphs;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
+mod printer;
 mod transforms;
 
-pub use error::LockfileError as Error;
+pub use error::DeserializationError;
+pub use error::LockfileError;
+pub use error::LockfileErrorReason;
 
 use crate::graphs::LockfilePackageGraph;
 
@@ -66,7 +71,7 @@ pub struct NpmPackageDependencyLockfileInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct NpmPackageInfo {
   pub integrity: String,
-  // todo(dsherret): we should skip serializing this in a future lockfile version
+  #[serde(default)]
   pub dependencies: BTreeMap<String, String>,
 }
 
@@ -128,10 +133,10 @@ impl PackagesContent {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
-struct LockfilePackageJsonContent {
+pub(crate) struct LockfilePackageJsonContent {
   #[serde(default)]
   #[serde(skip_serializing_if = "BTreeSet::is_empty")]
-  dependencies: BTreeSet<String>,
+  pub dependencies: BTreeSet<String>,
 }
 
 impl LockfilePackageJsonContent {
@@ -142,13 +147,13 @@ impl LockfilePackageJsonContent {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceMemberConfigContent {
+pub(crate) struct WorkspaceMemberConfigContent {
   #[serde(skip_serializing_if = "BTreeSet::is_empty")]
   #[serde(default)]
-  dependencies: BTreeSet<String>,
+  pub dependencies: BTreeSet<String>,
   #[serde(skip_serializing_if = "LockfilePackageJsonContent::is_empty")]
   #[serde(default)]
-  package_json: LockfilePackageJsonContent,
+  pub package_json: LockfilePackageJsonContent,
 }
 
 impl WorkspaceMemberConfigContent {
@@ -167,12 +172,12 @@ impl WorkspaceMemberConfigContent {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceConfigContent {
+pub(crate) struct WorkspaceConfigContent {
   #[serde(default, flatten)]
-  root: WorkspaceMemberConfigContent,
+  pub root: WorkspaceMemberConfigContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  members: BTreeMap<String, WorkspaceMemberConfigContent>,
+  pub members: BTreeMap<String, WorkspaceMemberConfigContent>,
 }
 
 impl WorkspaceConfigContent {
@@ -188,10 +193,10 @@ impl WorkspaceConfigContent {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
-  version: String,
+  pub(crate) version: String,
   // order these based on auditability
   #[serde(skip_serializing_if = "PackagesContent::is_empty")]
   #[serde(default)]
@@ -203,13 +208,212 @@ pub struct LockfileContent {
   // serializing this when it's empty
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
   #[serde(default)]
-  remote: BTreeMap<String, String>,
+  pub(crate) remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
   #[serde(default)]
-  workspace: WorkspaceConfigContent,
+  pub(crate) workspace: WorkspaceConfigContent,
 }
 
 impl LockfileContent {
+  pub fn from_json(
+    json: serde_json::Value,
+  ) -> Result<Self, DeserializationError> {
+    fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
+      if value.is_empty() {
+        return None;
+      }
+      let at_index = value[1..].find('@').map(|i| i + 1)?;
+      let name = &value[..at_index];
+      let version = &value[at_index + 1..];
+      Some((name, version))
+    }
+
+    fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
+      if value.len() < 5 {
+        return None;
+      }
+      // 5 is length of `jsr:@`/`npm:@`
+      let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
+        // no version requirement
+        // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
+        return Some((value, None));
+      };
+      let name = &value[..at_index];
+      let version = &value[at_index + 1..];
+      Some((name, Some(version)))
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawNpmPackageInfo {
+      pub integrity: String,
+      #[serde(default)]
+      pub dependencies: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawJsrPackageInfo {
+      pub integrity: String,
+      #[serde(default)]
+      pub dependencies: Vec<String>,
+    }
+
+    fn deserialize_section<T: DeserializeOwned + Default>(
+      json: &mut serde_json::Map<String, serde_json::Value>,
+      key: &'static str,
+    ) -> Result<T, DeserializationError> {
+      match json.remove(key) {
+        Some(value) => serde_json::from_value(value)
+          .map_err(|err| DeserializationError::FailedDeserializing(key, err)),
+        None => Ok(Default::default()),
+      }
+    }
+
+    use serde_json::Value;
+
+    let Value::Object(mut json) = json else {
+      return Ok(Self::empty());
+    };
+
+    Ok(LockfileContent {
+      version: json
+        .remove("version")
+        .and_then(|v| match v {
+          Value::String(v) => Some(v),
+          _ => None,
+        })
+        .unwrap_or_else(|| "3".to_string()),
+      packages: {
+        let specifiers: BTreeMap<String, String> =
+          deserialize_section(&mut json, "specifiers")?;
+        let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
+        let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
+          deserialize_section(&mut json, "npm")?;
+        if !raw_npm.is_empty() {
+          // collect the versions
+          let mut version_by_dep_name: HashMap<String, String> =
+            HashMap::with_capacity(raw_npm.len());
+          for id in raw_npm.keys() {
+            let Some((name, version)) = extract_nv_from_id(id) else {
+              return Err(DeserializationError::InvalidNpmPackageId(
+                id.to_string(),
+              ));
+            };
+            version_by_dep_name.insert(name.to_string(), version.to_string());
+          }
+
+          // now go through and create the resolved npm package information
+          for (key, value) in raw_npm {
+            let mut dependencies = BTreeMap::new();
+            for dep in value.dependencies {
+              let (left, right) = match extract_nv_from_id(&dep) {
+                Some((name, version)) => (name, version),
+                None => match version_by_dep_name.get(&dep) {
+                  Some(version) => (dep.as_str(), version.as_str()),
+                  None => {
+                    return Err(DeserializationError::MissingPackage(dep))
+                  }
+                },
+              };
+              let (key, package_name, version) =
+                match right.strip_prefix("npm:") {
+                  Some(right) => {
+                    // ex. key@npm:package-a@version
+                    match extract_nv_from_id(right) {
+                      Some((package_name, version)) => {
+                        (left, package_name, version)
+                      }
+                      None => {
+                        return Err(
+                          DeserializationError::InvalidNpmPackageDependency(
+                            dep.to_string(),
+                          ),
+                        );
+                      }
+                    }
+                  }
+                  None => (left, left, right),
+                };
+              dependencies.insert(
+                key.to_string(),
+                format!("{}@{}", package_name, version),
+              );
+            }
+            npm.insert(
+              key,
+              NpmPackageInfo {
+                integrity: value.integrity,
+                dependencies,
+              },
+            );
+          }
+        }
+        let mut jsr: BTreeMap<String, JsrPackageInfo> = Default::default();
+        {
+          let raw_jsr: BTreeMap<String, RawJsrPackageInfo> =
+            deserialize_section(&mut json, "jsr")?;
+          if !raw_jsr.is_empty() {
+            // collect the specifier information
+            let mut to_resolved_specifiers: HashMap<&str, Option<&str>> =
+              HashMap::with_capacity(specifiers.len() * 2);
+            // first insert the specifiers that should be left alone
+            for specifier in specifiers.keys() {
+              to_resolved_specifiers.insert(specifier, None);
+            }
+            // then insert the mapping specifiers
+            for specifier in specifiers.keys() {
+              let Some((name, req)) = split_pkg_req(specifier) else {
+                return Err(DeserializationError::InvalidPackageSpecifier(
+                  specifier.to_string(),
+                ));
+              };
+              if req.is_some() {
+                let entry = to_resolved_specifiers.entry(name);
+                // if an entry is occupied that means there's multiple specifiers
+                // for the same name, such as one without a req, so ignore inserting
+                // here
+                if let std::collections::hash_map::Entry::Vacant(entry) = entry
+                {
+                  entry.insert(Some(specifier));
+                }
+              }
+            }
+
+            // now go through the dependencies mapping to the new ones
+            for (key, value) in raw_jsr {
+              let mut dependencies = BTreeSet::new();
+              for dep in value.dependencies {
+                let Some(maybe_specifier) =
+                  to_resolved_specifiers.get(dep.as_str())
+                else {
+                  todo!();
+                };
+                dependencies.insert(
+                  maybe_specifier.map(|s| s.to_string()).unwrap_or(dep),
+                );
+              }
+              jsr.insert(
+                key,
+                JsrPackageInfo {
+                  integrity: value.integrity,
+                  dependencies,
+                },
+              );
+            }
+          }
+        }
+
+        PackagesContent {
+          jsr,
+          specifiers,
+          npm,
+        }
+      },
+      redirects: deserialize_section(&mut json, "redirects")?,
+      remote: deserialize_section(&mut json, "remote")?,
+      workspace: deserialize_section(&mut json, "workspace")?,
+    })
+  }
+
   fn empty() -> Self {
     Self {
       version: "3".to_string(),
@@ -251,32 +455,57 @@ impl Lockfile {
     filename: PathBuf,
     content: &str,
     overwrite: bool,
-  ) -> Result<Lockfile, Error> {
+  ) -> Result<Lockfile, LockfileError> {
+    fn load_content(
+      content: &str,
+    ) -> Result<LockfileContent, LockfileErrorReason> {
+      let value: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(content)
+          .map_err(LockfileErrorReason::ParseError)?;
+      let version = value.get("version").and_then(|v| v.as_str());
+      let was_version_4 = version == Some("4");
+      let value = match version {
+        Some("4") => value,
+        Some("3") => transforms::transform3_to_4(value)?,
+        Some("2") => {
+          transforms::transform3_to_4(transforms::transform2_to_3(value))?
+        }
+        None => transforms::transform3_to_4(transforms::transform2_to_3(
+          transforms::transform1_to_2(value),
+        ))?,
+        Some(version) => {
+          return Err(LockfileErrorReason::UnsupportedVersion {
+            version: version.to_string(),
+          });
+        }
+      };
+      let mut content = LockfileContent::from_json(value.into())
+        .map_err(LockfileErrorReason::DeserializationError)?;
+
+      // for now, force the version to be 3 when not 4
+      if !was_version_4 {
+        content.version = "3".to_string();
+      }
+
+      Ok(content)
+    }
+
     // Writing a lock file always uses the new format.
     if overwrite {
       return Ok(Lockfile::new_empty(filename, overwrite));
     }
 
     if content.trim().is_empty() {
-      return Err(Error::ReadError("Lockfile was empty.".to_string()));
+      return Err(LockfileError {
+        filename: filename.display().to_string(),
+        reason: LockfileErrorReason::Empty,
+      });
     }
 
-    let value: serde_json::Map<String, serde_json::Value> =
-      serde_json::from_str(content).map_err(|err| {
-        Error::ParseError(filename.display().to_string(), err)
-      })?;
-    let version = value.get("version").and_then(|v| v.as_str());
-    let value = match version {
-      Some("3") => value,
-      Some("2") => transforms::transform2_to_3(value),
-      None => transforms::transform2_to_3(transforms::transform1_to_2(value)),
-      Some(version) => {
-        return Err(Error::UnsupportedVersion(version.to_string()));
-      }
-    };
-    let content = serde_json::from_value::<LockfileContent>(value.into())
-      .map_err(|err| Error::ParseError(filename.display().to_string(), err))?;
-
+    let content = load_content(content).map_err(|reason| LockfileError {
+      filename: filename.display().to_string(),
+      reason,
+    })?;
     Ok(Lockfile {
       overwrite,
       has_content_changed: false,
@@ -285,10 +514,25 @@ impl Lockfile {
     })
   }
 
+  /// Force being v4 (ex. when using DENO_FUTURE).
+  pub fn force_v4(&mut self) {
+    if self.content.version != "4" {
+      self.content.version = "4".to_string();
+      self.has_content_changed = true;
+    }
+  }
+
   pub fn as_json_string(&self) -> String {
-    let mut json_string = serde_json::to_string_pretty(&self.content).unwrap();
-    json_string.push('\n'); // trailing newline in file
-    json_string
+    if self.content.version == "4" {
+      let mut text = String::new();
+      printer::print_v4_content(&self.content, &mut text);
+      text
+    } else {
+      let mut json_string =
+        serde_json::to_string_pretty(&self.content).unwrap();
+      json_string.push('\n'); // trailing newline in file
+      json_string
+    }
   }
 
   pub fn set_workspace_config(
@@ -326,13 +570,11 @@ impl Lockfile {
     // if specified, don't modify the package.json dependencies
     if options.no_npm || options.no_config {
       if options.config.root.package_json_deps.is_empty() {
-        options.config.root.package_json_deps = self
-          .content
-          .workspace
+        options
+          .config
           .root
-          .package_json
-          .dependencies
-          .clone();
+          .package_json_deps
+          .clone_from(&self.content.workspace.root.package_json.dependencies);
       }
       for (key, value) in options.config.members.iter_mut() {
         if value.package_json_deps.is_empty() {
@@ -348,8 +590,11 @@ impl Lockfile {
     }
     if options.no_config {
       if options.config.root.dependencies.is_empty() {
-        options.config.root.dependencies =
-          self.content.workspace.root.dependencies.clone();
+        options
+          .config
+          .root
+          .dependencies
+          .clone_from(&self.content.workspace.root.dependencies);
       }
       for (key, value) in options.config.members.iter_mut() {
         if value.dependencies.is_empty() {
@@ -363,7 +608,7 @@ impl Lockfile {
         }
       }
       for (key, value) in self.content.workspace.members.iter() {
-        if options.config.members.get(key).is_none() {
+        if !options.config.members.contains_key(key) {
           options.config.members.insert(
             key.clone(),
             WorkspaceMemberConfig {
@@ -468,11 +713,12 @@ impl Lockfile {
   /// lockfile, then rename to overwrite. This will make the
   /// lockfile more resilient when multiple processes are
   /// writing to it.
-  pub fn resolve_write_bytes(&self) -> Option<Vec<u8>> {
+  pub fn resolve_write_bytes(&mut self) -> Option<Vec<u8>> {
     if !self.has_content_changed && !self.overwrite {
       return None;
     }
 
+    self.has_content_changed = false;
     Some(self.as_json_string().into_bytes())
   }
 
@@ -644,7 +890,7 @@ mod tests {
   }
 }"#;
 
-  fn setup(overwrite: bool) -> Result<Lockfile, Error> {
+  fn setup(overwrite: bool) -> Result<Lockfile, LockfileError> {
     let file_path =
       std::env::current_dir().unwrap().join("valid_lockfile.json");
     Lockfile::with_lockfile_content(file_path, LOCKFILE_JSON, overwrite)
@@ -661,7 +907,7 @@ mod tests {
       )
       .err()
       .unwrap().to_string(),
-      "Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile.".to_string()
+      "Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile at 'lockfile.json'.".to_string()
     );
   }
 
@@ -1054,7 +1300,7 @@ mod tests {
       .unwrap();
     assert_eq!(
       err.to_string(),
-      "Unable to read lockfile. Lockfile was empty."
+      "Unable to read lockfile. Lockfile was empty at 'lockfile.json'."
     );
   }
 }

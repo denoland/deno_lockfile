@@ -33,7 +33,7 @@
       }
     },
     "npm": {
-      "@example/orphan": {
+      "@example/orphan@0.0.1": {
         "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==",
         "dependencies": {}
       },
@@ -248,7 +248,7 @@
       }
     },
     "npm": {
-      "@example/orphan": {
+      "@example/orphan@0.0.1": {
         "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==",
         "dependencies": {}
       },
@@ -433,7 +433,7 @@
       }
     },
     "npm": {
-      "@example/orphan": {
+      "@example/orphan@0.0.1": {
         "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==",
         "dependencies": {}
       }
