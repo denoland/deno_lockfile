@@ -14,6 +14,7 @@ use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 use file_test_runner::collection::CollectOptions;
 use file_test_runner::collection::CollectedTest;
 use file_test_runner::RunOptions;
+use file_test_runner::SubTestResult;
 use file_test_runner::TestResult;
 use helpers::ConfigChangeSpec;
 use helpers::SpecSection;
@@ -31,22 +32,21 @@ fn main() {
       filter_override: None,
     },
     RunOptions { parallel: true },
-    |test| {
-      TestResult::from_maybe_panic(AssertUnwindSafe(|| {
-        run_test(test);
-      }))
-    },
+    |test| run_test(test),
   )
 }
 
-fn run_test(test: &CollectedTest) {
-  if test.name.starts_with("specs::config_changes::") {
-    config_changes_test(test);
-  } else if test.name.starts_with("specs::transforms::") {
-    transforms_test(test);
-  } else {
-    panic!("Unknown test: {}", test.name);
-  }
+fn run_test(test: &CollectedTest) -> TestResult {
+  TestResult::from_maybe_panic_or_result(AssertUnwindSafe(|| {
+    if test.name.starts_with("specs::config_changes::") {
+      config_changes_test(test);
+      TestResult::Passed
+    } else if test.name.starts_with("specs::transforms::") {
+      transforms_test(test)
+    } else {
+      panic!("Unknown test: {}", test.name);
+    }
+  }))
 }
 
 fn config_changes_test(test: &CollectedTest) {
@@ -158,7 +158,7 @@ fn config_changes_test(test: &CollectedTest) {
   }
 }
 
-fn transforms_test(test: &CollectedTest) {
+fn transforms_test(test: &CollectedTest) -> TestResult {
   let text = test.read_to_string().unwrap();
   let mut sections = SpecSection::parse_many(&text);
   assert_eq!(sections.len(), 2);
@@ -181,17 +181,43 @@ fn transforms_test(test: &CollectedTest) {
       format!("{}{}", original_section.emit(), expected_section.emit()),
     )
     .unwrap();
+    TestResult::Passed
   } else {
-    assert_eq!(actual_text.trim(), expected_section.text.trim());
+    let mut sub_tests = Vec::new();
+    sub_tests.push(SubTestResult {
+      name: "v4_upgrade".to_string(),
+      result: TestResult::from_maybe_panic(|| {
+        assert_eq!(actual_text.trim(), expected_section.text.trim());
+      }),
+    });
     // if this was v3, ensure that an emit of the original v3 lockfile
     // still emits the same way
     if original_section.text.contains("\"version\": \"3\"") {
-      assert_eq!(
-        original_lockfile.as_json_string().trim(),
-        original_section.text.trim(),
-        "original emit failed"
-      );
+      sub_tests.push(SubTestResult {
+        name: "v3_emit".to_string(),
+        result: TestResult::from_maybe_panic(|| {
+          assert_eq!(
+            original_lockfile.as_json_string().trim(),
+            original_section.text.trim(),
+            "original emit failed"
+          );
+        }),
+      })
     }
+    // now try parsing the lockfile v4 output, then reserialize it and ensure it matches
+    sub_tests.push(SubTestResult {
+      name: "v4_reparse_and_emit".to_string(),
+      result: TestResult::from_maybe_panic(|| {
+        let lockfile: Lockfile = Lockfile::with_lockfile_content(
+          test.path.with_extension("lock"),
+          &actual_text,
+          false,
+        )
+        .unwrap();
+        assert_eq!(lockfile.as_json_string().trim(), actual_text.trim());
+      }),
+    });
+    TestResult::SubTests(sub_tests)
   }
 }
 
