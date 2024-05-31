@@ -32,7 +32,7 @@ fn main() {
       filter_override: None,
     },
     RunOptions { parallel: true },
-    |test| run_test(test),
+    run_test,
   )
 }
 
