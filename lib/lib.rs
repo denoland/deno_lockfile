@@ -22,6 +22,11 @@ impl JsLockFile {
     JsLockFile(Lockfile::new_empty(PathBuf::from(filename), overwrite))
   }
 
+  #[wasm_bindgen(js_name = copy)]
+  pub fn copy(&self) -> JsLockFile {
+    JsLockFile(self.0.clone())
+  }
+
   #[wasm_bindgen(js_name = toString)]
   pub fn to_string(&self) -> String {
     self.0.as_json_string()
