@@ -1,6 +1,6 @@
 import {
   instantiate,
-  type JsLockFile,
+  type JsLockfile,
 } from "./deno_lockfile_wasm.generated.js";
 
 export interface WorkspaceMemberConfig {
@@ -14,7 +14,7 @@ export interface WorkspaceConfig extends WorkspaceMemberConfig {
   members?: Record<string, WorkspaceMemberConfig>;
 }
 
-export interface LockFileJson {
+export interface LockfileJson {
   version: string;
   packages?: {
     specifiers: Record<string, string>;
@@ -36,16 +36,17 @@ export interface NpmPackageInfo {
   dependencies: Record<string, string>;
 }
 
-export interface LockFile extends Omit<JsLockFile, "free"> {
-  toJson(): LockFileJson;
+export interface Lockfile extends Omit<JsLockfile, "free" | "filename"> {
   insertNpmPackage(specifier: string, packageInfo: NpmPackageInfo): void;
   setWorkspaceConfig(config: WorkspaceConfig): void;
+  toJson(): LockfileJson;
+  get filename(): string;
 }
 
 export async function parseFromJson(
   baseUrl: string | URL,
-  json: string | LockFileJson,
-): Promise<LockFile> {
+  json: string | LockfileJson,
+): Promise<Lockfile> {
   const wasm = await instantiate();
   if (baseUrl instanceof URL) {
     baseUrl = baseUrl.toString();
@@ -53,5 +54,13 @@ export async function parseFromJson(
   if (typeof json === "object") {
     json = JSON.stringify(json);
   }
-  return wasm.parseFromJson(baseUrl, json);
+  const inner = wasm.parseFromJson(baseUrl, json);
+  return new Proxy(inner, {
+    get(target, prop, receiver) {
+      if (prop === "filename") {
+        return inner.filename();
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as unknown as Lockfile;
 }

@@ -13,18 +13,23 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub struct JsLockFile(Lockfile);
+pub struct JsLockfile(Lockfile);
 
 #[wasm_bindgen]
-impl JsLockFile {
+impl JsLockfile {
   #[wasm_bindgen(constructor)]
   pub fn new(filename: String, overwrite: bool) -> Self {
-    JsLockFile(Lockfile::new_empty(PathBuf::from(filename), overwrite))
+    JsLockfile(Lockfile::new_empty(PathBuf::from(filename), overwrite))
+  }
+
+  #[wasm_bindgen(js_name = filename)]
+  pub fn filename(&self) -> String {
+    self.0.filename.display().to_string()
   }
 
   #[wasm_bindgen(js_name = copy)]
-  pub fn copy(&self) -> JsLockFile {
-    JsLockFile(self.0.clone())
+  pub fn copy(&self) -> JsLockfile {
+    JsLockfile(self.0.clone())
   }
 
   #[wasm_bindgen(js_name = toString)]
@@ -110,8 +115,8 @@ impl JsLockFile {
 pub fn js_parse_from_json(
   filename: String,
   content: &str,
-) -> Result<JsLockFile, JsError> {
+) -> Result<JsLockfile, JsError> {
   Lockfile::with_lockfile_content(PathBuf::from(filename), content, false)
-    .map(|lockfile| JsLockFile(lockfile))
+    .map(|lockfile| JsLockfile(lockfile))
     .map_err(|err| JsError::new(&err.to_string()))
 }

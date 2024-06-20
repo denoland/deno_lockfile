@@ -1,6 +1,11 @@
-import { assertExists, assertFalse, assertObjectMatch } from "@std/assert";
+import {
+  assertEquals,
+  assertExists,
+  assertFalse,
+  assertObjectMatch,
+} from "@std/assert";
 import { beforeEach, describe, it } from "@std/testing/bdd";
-import { LockFile, parseFromJson } from "./mod.ts";
+import { Lockfile, parseFromJson } from "./mod.ts";
 
 describe("parseFromJson", () => {
   const json = {
@@ -36,6 +41,15 @@ describe("parseFromJson", () => {
 });
 
 describe("LockFile", () => {
+  describe("filename", () => {
+    it("should return the filename", async () => {
+      const lockfile = await parseFromJson("file:///deno.lock", {
+        version: "3",
+      });
+      assertEquals(lockfile.filename, "file:///deno.lock");
+    });
+  });
+
   describe("copy", () => {
     it("should copy a lockfile", async () => {
       const json = {
@@ -55,11 +69,14 @@ describe("LockFile", () => {
       const original = await parseFromJson("file:///deno.lock", json);
       const copy = original.copy();
       assertObjectMatch(copy.toJson(), json);
+
+      copy.insertRemote("https://deno.land/std@0.224.0/version.ts", "xxx");
+      assertObjectMatch(original.toJson(), json);
     });
   });
 
   describe("setWorkspaceConfig", () => {
-    let lockfile: LockFile;
+    let lockfile: Lockfile;
 
     beforeEach(async () => {
       lockfile = await parseFromJson(
