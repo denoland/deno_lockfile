@@ -5,7 +5,7 @@ import {
   assertObjectMatch,
 } from "@std/assert";
 import { beforeEach, describe, it } from "@std/testing/bdd";
-import { Lockfile, parseFromJson } from "./mod.ts";
+import { instantiate, Lockfile, parseFromJson } from "./mod.ts";
 
 describe("parseFromJson", () => {
   const json = {
@@ -37,6 +37,19 @@ describe("parseFromJson", () => {
       JSON.stringify(json),
     );
     assertExists(lockfile);
+  });
+});
+
+describe("instantiate", () => {
+  it("should return a synchronous interface to parseFromJson", async () => {
+    const wasm = await instantiate();
+    assertEquals(
+      wasm.parseFromJson("file:///deno.lock", { version: "3" }).toJson(),
+      {
+        version: "3",
+        remote: {},
+      },
+    );
   });
 });
 

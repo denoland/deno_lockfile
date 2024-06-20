@@ -1,7 +1,5 @@
-import {
-  instantiate,
-  type JsLockfile,
-} from "./deno_lockfile_wasm.generated.js";
+import * as wasm from "./deno_lockfile_wasm.generated.js";
+import { type JsLockfile } from "./deno_lockfile_wasm.generated.d.ts";
 
 export interface WorkspaceMemberConfig {
   dependencies?: string[];
@@ -36,7 +34,8 @@ export interface NpmPackageInfo {
   dependencies: Record<string, string>;
 }
 
-export interface Lockfile extends Omit<JsLockfile, "copy" | "filename" | "free"> {
+export interface Lockfile
+  extends Omit<JsLockfile, "copy" | "filename" | "free"> {
   copy(): Lockfile;
   insertNpmPackage(specifier: string, packageInfo: NpmPackageInfo): void;
   setWorkspaceConfig(config: WorkspaceConfig): void;
@@ -48,14 +47,36 @@ export async function parseFromJson(
   baseUrl: string | URL,
   json: string | LockfileJson,
 ): Promise<Lockfile> {
-  const wasm = await instantiate();
+  return parseFromJsonWith(baseUrl, json, await wasm.instantiate());
+}
+
+export interface InstanciateResult {
+  parseFromJson(baseUrl: string | URL, json: string | LockfileJson): Lockfile;
+}
+
+export async function instantiate(
+  opts?: wasm.InstantiateOptions,
+): Promise<InstanciateResult> {
+  const mod = await wasm.instantiate(opts);
+  return {
+    parseFromJson(baseUrl, json) {
+      return parseFromJsonWith(baseUrl, json, mod);
+    },
+  };
+}
+
+function parseFromJsonWith(
+  baseUrl: string | URL,
+  json: string | LockfileJson,
+  mod: Awaited<ReturnType<typeof wasm.instantiate>>,
+): Lockfile {
   if (baseUrl instanceof URL) {
     baseUrl = baseUrl.toString();
   }
   if (typeof json === "object") {
     json = JSON.stringify(json);
   }
-  const inner = wasm.parseFromJson(baseUrl, json);
+  const inner = mod.parseFromJson(baseUrl, json);
   return new Proxy(inner, {
     get(target, prop, receiver) {
       if (prop === "filename") {
