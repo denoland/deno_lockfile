@@ -20,7 +20,7 @@ export interface LockfileJson {
     npm?: Record<string, NpmPackageInfo>;
   };
   redirects?: Record<string, string>;
-  remote?: Record<string, string>;
+  remote: Record<string, string>;
   workspace?: WorkspaceConfig;
 }
 

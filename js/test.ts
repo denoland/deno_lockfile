@@ -21,6 +21,7 @@ describe("parseFromJson", () => {
         },
       },
     },
+    remote: {},
   };
 
   it("should parse a LockFileJson and return a LockFile", async () => {
@@ -44,7 +45,10 @@ describe("instantiate", () => {
   it("should return a synchronous interface to parseFromJson", async () => {
     const wasm = await instantiate();
     assertEquals(
-      wasm.parseFromJson("file:///deno.lock", { version: "3" }).toJson(),
+      wasm.parseFromJson("file:///deno.lock", {
+        version: "3",
+        remote: {},
+      }).toJson(),
       {
         version: "3",
         remote: {},
@@ -58,6 +62,7 @@ describe("LockFile", () => {
     it("should return the filename", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       assertEquals(lockfile.filename, "file:///deno.lock");
     });
@@ -181,6 +186,7 @@ describe("LockFile", () => {
     it("should insert a remote dependency", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       lockfile.insertRemote("https://deno.land/std@0.224.0/version.ts", "xxx");
       assertObjectMatch(lockfile.toJson(), {
@@ -196,6 +202,7 @@ describe("LockFile", () => {
     it("should insert an npm package", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       const npmPackageInfo = {
         "integrity":
@@ -219,6 +226,7 @@ describe("LockFile", () => {
     it("should insert a jsr package specifier", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       lockfile.insertPackageSpecifier(
         "jsr:@std/testing@^0.225.0",
@@ -236,6 +244,7 @@ describe("LockFile", () => {
     it("should insert a npm package specifier", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       lockfile.insertPackageSpecifier("npm:which@^2.0.0", "npm:which@2.0.2");
       assertObjectMatch(lockfile.toJson(), {
@@ -252,6 +261,7 @@ describe("LockFile", () => {
     it("should insert a jsr package", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       const specifier = "jsr:@std/assert@0.226.0";
       const integrity =
@@ -271,6 +281,7 @@ describe("LockFile", () => {
     it("should add dependencies of a jsr package", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       const specifier = "jsr:@std/assert@0.226.0";
       const integrity =
@@ -292,6 +303,7 @@ describe("LockFile", () => {
     it("should insert a redirect", async () => {
       const lockfile = await parseFromJson("file:///deno.lock", {
         version: "3",
+        remote: {},
       });
       const from = "https://deno.land/x/std/mod.ts";
       const to = "https://deno.land/std@0.224.0/mod.ts";
