@@ -78,13 +78,19 @@ describe("LockFile", () => {
             },
           },
         },
+        remote: {},
       };
       const original = await parseFromJson("file:///deno.lock", json);
       const copy = original.copy();
-      assertObjectMatch(copy.toJson(), json);
+      assertEquals(copy.toJson(), json);
 
       copy.insertRemote("https://deno.land/std@0.224.0/version.ts", "xxx");
-      assertObjectMatch(original.toJson(), json);
+      assertObjectMatch(copy.toJson(), {
+        remote: {
+          "https://deno.land/std@0.224.0/version.ts": "xxx",
+        },
+      });
+      assertEquals(original.toJson(), json);
     });
   });
 
