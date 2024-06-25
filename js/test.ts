@@ -68,37 +68,6 @@ describe("LockFile", () => {
     });
   });
 
-  describe("copy", () => {
-    it("should copy a lockfile", async () => {
-      const json = {
-        version: "3",
-        packages: {
-          "specifiers": {
-            "jsr:@std/testing@^0.225.2": "jsr:@std/testing@0.225.2",
-          },
-          jsr: {
-            "@std/testing@0.225.2": {
-              "integrity":
-                "ae5a55e412926acdba98ec3b72aba93d2ab40cad3d0cd2454b048c10ca3584d8",
-            },
-          },
-        },
-        remote: {},
-      };
-      const original = await parseFromJson("file:///deno.lock", json);
-      const copy = original.copy();
-      assertEquals(copy.toJson(), json);
-
-      copy.insertRemote("https://deno.land/std@0.224.0/version.ts", "xxx");
-      assertObjectMatch(copy.toJson(), {
-        remote: {
-          "https://deno.land/std@0.224.0/version.ts": "xxx",
-        },
-      });
-      assertEquals(original.toJson(), json);
-    });
-  });
-
   describe("setWorkspaceConfig", () => {
     let lockfile: Lockfile;
 

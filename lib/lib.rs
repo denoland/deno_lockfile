@@ -27,11 +27,6 @@ impl JsLockfile {
     self.0.filename.display().to_string()
   }
 
-  #[wasm_bindgen(js_name = copy)]
-  pub fn copy(&self) -> JsLockfile {
-    JsLockfile(self.0.clone())
-  }
-
   #[wasm_bindgen(js_name = toString)]
   pub fn to_string(&self) -> String {
     self.0.as_json_string()
@@ -92,8 +87,8 @@ impl JsLockfile {
   }
 
   #[wasm_bindgen(js_name = insertPackage)]
-  pub fn insert_package(&mut self, specifier: String, integrity: String) {
-    self.0.insert_package(specifier, integrity);
+  pub fn insert_package(&mut self, name: String, integrity: String) {
+    self.0.insert_package(name, integrity);
   }
 
   #[wasm_bindgen(js_name = addPackageDeps)]

@@ -34,10 +34,8 @@ export interface NpmPackageInfo {
   dependencies: Record<string, string>;
 }
 
-export interface Lockfile
-  extends Omit<JsLockfile, "copy" | "filename" | "free"> {
-  copy(): Lockfile;
-  insertNpmPackage(specifier: string, packageInfo: NpmPackageInfo): void;
+export interface Lockfile extends Omit<JsLockfile, "filename" | "free"> {
+  insertNpmPackage(name: string, packageInfo: NpmPackageInfo): void;
   setWorkspaceConfig(config: WorkspaceConfig): void;
   toJson(): LockfileJson;
   get filename(): string;
