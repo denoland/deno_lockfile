@@ -1,0 +1,19 @@
+{
+  "tasks": {
+    "build": "deno task pre-build && deno task wasmbuild --project deno_lockfile_wasm --out ./js",
+    "pre-build": "cp LICENSE js/LICENSE",
+    "test": "deno test --allow-read",
+    "test:fast": "deno task test --no-check --parallel --shuffle",
+    "wasmbuild": "deno run -A jsr:@deno/wasmbuild@0.17.2"
+  },
+  "workspaces": [
+    "./js"
+  ],
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^0.226.0",
+    "@std/testing": "jsr:@std/testing@^0.225.2"
+  },
+  "exclude": [
+    "./target"
+  ]
+}

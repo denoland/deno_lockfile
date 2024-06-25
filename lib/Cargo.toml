@@ -1,0 +1,20 @@
+[package]
+name = "deno_lockfile_wasm"
+version = "0.0.0"
+edition = "2021"
+homepage = "https://deno.land/"
+repository = "https://github.com/denoland/deno_lockfile"
+documentation = "https://docs.rs/deno_lockfile"
+authors = ["the Deno authors"]
+license = "MIT"
+
+[lib]
+name = "deno_lockfile_wasm"
+path = "lib.rs"
+crate_type = ["cdylib"]
+
+[dependencies]
+deno_lockfile = { path = "../" }
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.4"
+wasm-bindgen = "=0.2.92"

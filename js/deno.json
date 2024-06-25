@@ -1,0 +1,12 @@
+{
+  "name": "@deno/lockfile",
+  "version": "0.0.0",
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "publish": {
+    "exclude": [
+      "!**"
+    ]
+  }
+}

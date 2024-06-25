@@ -1,2 +1,6 @@
 .vscode/
 /target
+js/deno_lockfile_wasm_bg.wasm
+js/deno_lockfile_wasm.generated.d.ts
+js/deno_lockfile_wasm.generated.js
+js/LICENSE
