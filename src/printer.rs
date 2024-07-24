@@ -226,7 +226,7 @@ fn write_workspace(output: &mut String, workspace: &WorkspaceConfigContent) {
   write_workspace_member_config(output, &workspace.root, "    ");
   if !workspace.members.is_empty() {
     comma_if_necessary(output);
-    output.push_str("    \"members\": {\n");
+    output.push_str("\n    \"members\": {\n");
     for (i, (key, value)) in workspace.members.iter().enumerate() {
       if i > 0 {
         output.push_str(",\n");
@@ -235,8 +235,9 @@ fn write_workspace(output: &mut String, workspace: &WorkspaceConfigContent) {
       output.push_str(key);
       output.push_str("\": {");
       write_workspace_member_config(output, value, "        ");
-      output.push_str("\n      }");
+      close_object(output, "      ");
     }
+    output.push_str("\n    }");
   }
   output.push_str("\n  }");
 }
@@ -292,4 +293,14 @@ fn comma_if_necessary(output: &mut String) {
   if output.ends_with('}') || output.ends_with(']') {
     output.push(',');
   }
+}
+
+fn close_object(output: &mut String, indent_text: &str) {
+  if output.ends_with('{') || output.ends_with(' ') {
+    output.push('}');
+    return;
+  }
+  output.push('\n');
+  output.push_str(indent_text);
+  output.push('}');
 }
