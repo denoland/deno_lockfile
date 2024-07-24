@@ -204,22 +204,18 @@
 
 # will remove the contents
 {
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:@scope/package_orphan": "jsr:@scope/package_orphan@0.0.1"
-    },
-    "jsr": {
-      "@scope/package_orphan@0.0.1": {
-        "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-      }
-    },
-    "npm": {
-      "@example/orphan@0.0.1": {
-        "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==",
-        "dependencies": {}
-      }
+  "version": "4",
+  "specifiers": {
+    "jsr:@scope/package_orphan": "jsr:@scope/package_orphan@0.0.1"
+  },
+  "jsr": {
+    "@scope/package_orphan@0.0.1": {
+      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
     }
   },
-  "remote": {}
+  "npm": {
+    "@example/orphan@0.0.1": {
+      "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g=="
+    }
+  }
 }

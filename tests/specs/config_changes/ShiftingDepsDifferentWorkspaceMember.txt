@@ -41,25 +41,22 @@
 
 # output
 {
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:@dsherret/dax": "jsr:@dsherret/dax@0.0.1",
-      "jsr:@dsherret/which@0.0.1": "jsr:@dsherret/which@0.0.1"
+  "version": "4",
+  "specifiers": {
+    "jsr:@dsherret/dax": "jsr:@dsherret/dax@0.0.1",
+    "jsr:@dsherret/which@0.0.1": "jsr:@dsherret/which@0.0.1"
+  },
+  "jsr": {
+    "@dsherret/dax@0.0.1": {
+      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
+      "dependencies": [
+        "jsr:@dsherret/which"
+      ]
     },
-    "jsr": {
-      "@dsherret/dax@0.0.1": {
-        "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-        "dependencies": [
-          "jsr:@dsherret/which@0.0.1"
-        ]
-      },
-      "@dsherret/which@0.0.1": {
-        "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-      }
+    "@dsherret/which@0.0.1": {
+      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
     }
   },
-  "remote": {},
   "workspace": {
     "members": {
       "package_a": {
@@ -85,25 +82,22 @@
 
 # output
 {
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:@dsherret/dax": "jsr:@dsherret/dax@0.0.1",
-      "jsr:@dsherret/which@0.0.1": "jsr:@dsherret/which@0.0.1"
+  "version": "4",
+  "specifiers": {
+    "jsr:@dsherret/dax": "jsr:@dsherret/dax@0.0.1",
+    "jsr:@dsherret/which@0.0.1": "jsr:@dsherret/which@0.0.1"
+  },
+  "jsr": {
+    "@dsherret/dax@0.0.1": {
+      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
+      "dependencies": [
+        "jsr:@dsherret/which"
+      ]
     },
-    "jsr": {
-      "@dsherret/dax@0.0.1": {
-        "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-        "dependencies": [
-          "jsr:@dsherret/which@0.0.1"
-        ]
-      },
-      "@dsherret/which@0.0.1": {
-        "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-      }
+    "@dsherret/which@0.0.1": {
+      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
     }
   },
-  "remote": {},
   "workspace": {
     "members": {
       "package_b": {

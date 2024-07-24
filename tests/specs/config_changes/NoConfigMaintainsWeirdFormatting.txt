@@ -186,33 +186,22 @@
   },
   "remote": {},
   "workspace": {
-    "members": {
-      "package_a": {
-        "dependencies": [
-          "jsr:@scope/package_a"
-        ],
-        "packageJson": {
-          "dependencies": [
-            "npm:ts-morph"
-          ]
-        }
-      }
+    "dependencies": [
+      "jsr:@scope/package_a"
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:ts-morph"
+      ]
     }
   }
 }
 
-# --no-npm (no change)
+# --no-config (no change)
 {
-  "members": {
-      "package_a": {
-        "dependencies": [
-          "jsr:@scope/package_a"
-        ]
-      }
-    }
 }
 
-# will maintain
+# will maintain the contents because --no-config was specified
 {
   "version": "3",
   "packages": {
@@ -400,39 +389,13 @@
   },
   "remote": {},
   "workspace": {
-    "members": {
-      "package_a": {
-        "dependencies": [
-          "jsr:@scope/package_a"
-        ],
-        "packageJson": {
-          "dependencies": [
-            "npm:ts-morph"
-          ]
-        }
-      }
-    }
-  }
-}
-
-# --no-npm
-{
-}
-
-# now will remove everything because the workspace members were removed
-{
-  "version": "4",
-  "specifiers": {
-    "jsr:@scope/package_orphan": "jsr:@scope/package_orphan@0.0.1"
-  },
-  "jsr": {
-    "@scope/package_orphan@0.0.1": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-    }
-  },
-  "npm": {
-    "@example/orphan@0.0.1": {
-      "integrity": "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g=="
+    "dependencies": [
+      "jsr:@scope/package_a"
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:ts-morph"
+      ]
     }
   }
 }

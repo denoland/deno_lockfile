@@ -102,14 +102,15 @@ fn config_changes_test(test: &CollectedTest) {
 
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   let mut spec = ConfigChangeSpec::parse(&test.read_to_string().unwrap());
-  let unchanged_lockfile = Lockfile::with_lockfile_content(
-    test.path.with_extension("lock"),
-    &spec.original_text.text,
-    false,
-  )
-  .unwrap();
+
   for change_and_output in &mut spec.change_and_outputs {
-    let mut lockfile = unchanged_lockfile.clone();
+    let mut lockfile = Lockfile::with_lockfile_content(
+      test.path.with_extension("lock"),
+      &spec.original_text.text,
+      false,
+    )
+    .unwrap();
+
     // setting the new workspace config should change the has_content_changed flag
     // lockfile.has_content_changed = false;
     let config = serde_json::from_str::<WorkspaceConfigContent>(
@@ -119,20 +120,29 @@ fn config_changes_test(test: &CollectedTest) {
     .into_workspace_config();
     let no_npm = change_and_output.change.title.contains("--no-npm");
     let no_config = change_and_output.change.title.contains("--no-config");
+
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config,
       no_npm,
       config: config.clone(),
     });
+
+    let change_expected = !change_and_output.change.title.contains("no change");
     assert_eq!(
       lockfile.has_content_changed(),
-      !change_and_output.change.title.contains("no change"),
-      "Failed for {}",
+      change_expected,
+      "Failed for {} because the lockfile {}",
       change_and_output.change.title,
+      if change_expected {
+        "did not change, but it should have"
+      } else {
+        "changed but it should stay the same"
+      }
     );
 
-    // now try resetting it and the flag should remain the same
-    // lockfile.has_content_changed = false;
+    // Reset change status by pretending to write the file
+    lockfile.resolve_write_bytes();
+    // Assert that the config does not change when we apply the same change again
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config,
       no_npm,
