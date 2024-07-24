@@ -196,6 +196,7 @@ impl WorkspaceConfigContent {
 #[derive(Debug, Clone, Serialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
+  /// The lockfile version
   pub(crate) version: String,
   // order these based on auditability
   #[serde(skip_serializing_if = "PackagesContent::is_empty")]
@@ -416,7 +417,7 @@ impl LockfileContent {
 
   fn empty() -> Self {
     Self {
-      version: "3".to_string(),
+      version: "4".to_string(),
       packages: Default::default(),
       redirects: Default::default(),
       remote: BTreeMap::new(),
@@ -434,10 +435,22 @@ impl LockfileContent {
 
 #[derive(Debug, Clone, Hash)]
 pub struct Lockfile {
-  pub overwrite: bool,
-  pub has_content_changed: bool,
-  pub content: LockfileContent,
-  pub filename: PathBuf,
+  /// If this flag is set, the current content of the lockfile is ignored and a new lockfile is generated.
+  ///
+  /// If it is unset, the lockfile will only be changed, if the content changed.
+  overwrite: bool,
+  /// Automatically set to true, if the content of the lockfile has changed.
+  ///
+  /// Once this flag is set to true, it will never be reset to false, except through [Lockfile::resolve_write_bytes]
+  has_content_changed: bool,
+  /// Current content of the lockfile
+  content: LockfileContent,
+  /// Path of the lockfile
+  filename: PathBuf,
+  /// Original content of the lockfile
+  ///
+  /// We need to store this, so that [Lockfile::as_json_string] can return the exact original content, if there were no changes
+  original_content: Option<String>,
 }
 
 impl Lockfile {
@@ -447,13 +460,20 @@ impl Lockfile {
       has_content_changed: false,
       content: LockfileContent::empty(),
       filename,
+      original_content: Option::Some(String::new()),
     }
   }
 
+  pub fn has_content_changed(&self) -> bool {
+    return self.has_content_changed;
+  }
+
   /// Create a new [`Lockfile`] instance from given filename and its content.
+  ///
+  /// TODO: Is this function our main way
   pub fn with_lockfile_content(
     filename: PathBuf,
-    content: &str,
+    file_content: &str,
     overwrite: bool,
   ) -> Result<Lockfile, LockfileError> {
     fn load_content(
@@ -463,7 +483,6 @@ impl Lockfile {
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
-      let was_version_4 = version == Some("4");
       let value = match version {
         Some("4") => value,
         Some("3") => transforms::transform3_to_4(value)?,
@@ -479,13 +498,8 @@ impl Lockfile {
           });
         }
       };
-      let mut content = LockfileContent::from_json(value.into())
+      let content = LockfileContent::from_json(value.into())
         .map_err(LockfileErrorReason::DeserializationError)?;
-
-      // for now, force the version to be 3 when not 4
-      if !was_version_4 {
-        content.version = "3".to_string();
-      }
 
       Ok(content)
     }
@@ -495,44 +509,42 @@ impl Lockfile {
       return Ok(Lockfile::new_empty(filename, overwrite));
     }
 
-    if content.trim().is_empty() {
+    if file_content.trim().is_empty() {
       return Err(LockfileError {
         filename: filename.display().to_string(),
         reason: LockfileErrorReason::Empty,
       });
     }
 
-    let content = load_content(content).map_err(|reason| LockfileError {
-      filename: filename.display().to_string(),
-      reason,
-    })?;
+    let content =
+      load_content(file_content).map_err(|reason| LockfileError {
+        filename: filename.display().to_string(),
+        reason,
+      })?;
     Ok(Lockfile {
       overwrite,
       has_content_changed: false,
       content,
       filename,
+      original_content: Some(file_content.into()),
     })
   }
 
-  /// Force being v4 (ex. when using DENO_FUTURE).
-  pub fn force_v4(&mut self) {
-    if self.content.version != "4" {
-      self.content.version = "4".to_string();
-      self.has_content_changed = true;
-    }
-  }
-
+  /// Get the lockfile contents as a formatted JSON string
   pub fn as_json_string(&self) -> String {
+    if let Some(original_content) = &self.original_content {
+      if !self.has_content_changed && !self.overwrite {
+        return original_content.clone();
+      }
+    }
+
     if self.content.version == "4" {
       let mut text = String::new();
       printer::print_v4_content(&self.content, &mut text);
-      text
-    } else {
-      let mut json_string =
-        serde_json::to_string_pretty(&self.content).unwrap();
-      json_string.push('\n'); // trailing newline in file
-      json_string
+      return text;
     }
+
+    panic!("Should never happen, as the content version should get set to four on loading")
   }
 
   pub fn set_workspace_config(
@@ -713,17 +725,26 @@ impl Lockfile {
   /// lockfile, then rename to overwrite. This will make the
   /// lockfile more resilient when multiple processes are
   /// writing to it.
+  ///
+  /// If you dont write the bytes received by this function to the lockfile, it will result in undefined behaviour
+  // TODO: Resetting `has_content_change` probably has some funny side effects; investigate
   pub fn resolve_write_bytes(&mut self) -> Option<Vec<u8>> {
     if !self.has_content_changed && !self.overwrite {
       return None;
     }
 
+    // This weird order is neccessary, because as_json_string will return the original_content, if there
+    let bytes_to_write = self.as_json_string().into_bytes();
     self.has_content_changed = false;
-    Some(self.as_json_string().into_bytes())
+    Some(bytes_to_write)
   }
 
   pub fn remote(&self) -> &BTreeMap<String, String> {
     &self.content.remote
+  }
+
+  pub fn content(&self) -> &LockfileContent {
+    &self.content
   }
 
   /// Inserts a remote specifier into the lockfile replacing the existing package if it exists.
@@ -842,6 +863,7 @@ impl Lockfile {
     }
   }
 
+  /// Adds a redirect to the lockfile
   pub fn insert_redirect(&mut self, from: String, to: String) {
     if from.starts_with("jsr:") {
       return;
@@ -968,7 +990,7 @@ mod tests {
     let mut lockfile = setup(true).unwrap();
 
     // true since overwrite was true
-    assert!(lockfile.resolve_write_bytes().is_some());
+    // assert!(lockfile.resolve_write_bytes().is_some());
 
     lockfile.insert_remote(
       "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
@@ -1012,40 +1034,78 @@ mod tests {
   #[test]
   fn check_or_insert_lockfile() {
     let mut lockfile = setup(false).unwrap();
-
-    // none since overwrite was false and there's no changes
+    // Setup lockfile
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
+      "checksum-1".to_string(),
+    );
+    // By reading the bytes we reset the changed state
+    assert!(lockfile.resolve_write_bytes().is_some());
+    // Verify that the lockfile has no unwritten changes
     assert!(lockfile.resolve_write_bytes().is_none());
 
+    // Not a change, should not cause changes
     lockfile.insert_remote(
       "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
       "checksum-1".to_string(),
     );
-    assert!(lockfile.has_content_changed);
+    assert!(lockfile.resolve_write_bytes().is_none());
 
-    lockfile.has_content_changed = false;
-    lockfile.insert_remote(
-      "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
-      "checksum-1".to_string(),
-    );
-    assert!(!lockfile.has_content_changed);
-
+    // This is a change, it should cause a write
     lockfile.insert_remote(
       "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
       "checksum-new".to_string(),
     );
-    assert!(lockfile.has_content_changed);
-    lockfile.has_content_changed = false;
+    assert!(lockfile.resolve_write_bytes().is_some());
 
     // Not present in lockfile yet, should be inserted and check passed.
     lockfile.insert_remote(
       "https://deno.land/std@0.71.0/http/file_server.ts".to_string(),
       "checksum-1".to_string(),
     );
-    assert!(lockfile.has_content_changed);
-
-    // true since there were changes
     assert!(lockfile.resolve_write_bytes().is_some());
   }
+
+  #[test]
+  fn does_always_write_bytes_if_overwrite_is_set() {
+    let mut lockfile = setup(true).unwrap();
+    assert!(lockfile.resolve_write_bytes().is_some());
+  }
+
+  #[test]
+  fn does_not_write_bytes_if_overwrite_is_not_set_and_there_are_no_changes() {
+    let mut lockfile = setup(false).unwrap();
+    assert!(lockfile.resolve_write_bytes().is_none());
+  }
+
+  #[test]
+  fn does_write_bytes_if_there_are_changes() {
+    let mut lockfile = setup(false).unwrap();
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/http/file_server.ts".to_string(),
+      "checksum-1".to_string(),
+    );
+    assert!(lockfile.resolve_write_bytes().is_some());
+  }
+
+  #[test]
+  fn does_not_write_bytes_if_all_changes_were_already_written() {
+    let mut lockfile = setup(false).unwrap();
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/http/file_server.ts".to_string(),
+      "checksum-1".to_string(),
+    );
+    assert!(lockfile.resolve_write_bytes().is_some());
+    assert!(lockfile.resolve_write_bytes().is_none());
+  }
+
+  // // TODO: Currently we always write, when overwrite is set, even if we already wrote the changes before. I think it would be more sane, if we only wrote, when there are unwritten changes. This would probably also mean, that we could just remove the overwrite flag and replace it by setting `has_content_changed` to true, when a lockfile is created with overwrite.
+  // #[test]
+  // fn does_not_write_bytes_if_overwrite_was_set_but_already_written() {
+  //   let mut lockfile = setup(true).unwrap();
+  //   assert!(lockfile.resolve_write_bytes().is_some());
+  //   assert!(lockfile.resolve_write_bytes().is_none());
+  // }
 
   #[test]
   fn check_or_insert_lockfile_npm() {
@@ -1099,31 +1159,53 @@ mod tests {
     let mut lockfile = Lockfile::with_lockfile_content(
       PathBuf::from("/foo/deno.lock"),
       r#"{
-  "version": "3",
+  "version": "4",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
-  },
-  "remote": {}
+  }
 }"#,
       false,
     )
     .unwrap();
-    lockfile.content.redirects.insert(
+    lockfile.insert_redirect(
       "https://deno.land/x/other/mod.ts".to_string(),
       "https://deno.land/x/other@0.1.0/mod.ts".to_string(),
     );
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "3",
+  "version": "4",
   "redirects": {
     "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
-  },
-  "remote": {}
+  }
 }
 "#,
     );
+  }
+
+  #[test]
+  fn test_version_does_not_change_if_lockfile_did_not_change() {
+    let original_content = r#"{
+  "version": "3",
+  "redirects": {
+    "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
+  },
+  "remote": {}
+}"#;
+    let mut lockfile = Lockfile::with_lockfile_content(
+      PathBuf::from("/foo/deno.lock"),
+      original_content,
+      false,
+    )
+    .unwrap();
+    // Insert already existing redirect
+    lockfile.insert_redirect(
+      "https://deno.land/x/std/mod.ts".to_string(),
+      "https://deno.land/std@0.190.0/mod.ts".to_string(),
+    );
+    assert!(!lockfile.has_content_changed());
+    assert_eq!(lockfile.as_json_string(), original_content,);
   }
 
   #[test]
@@ -1157,12 +1239,11 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "3",
+  "version": "4",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.1/mod.ts",
     "https://deno.land/x/std/other.ts": "https://deno.land/std@0.190.1/other.ts"
-  },
-  "remote": {}
+  }
 }
 "#,
     );
@@ -1201,14 +1282,11 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:@foo/bar@^2": "jsr:@foo/bar@2.1.2",
-      "jsr:path": "jsr:@std/path@0.75.1"
-    }
-  },
-  "remote": {}
+  "version": "4",
+  "specifiers": {
+    "jsr:@foo/bar@^2": "jsr:@foo/bar@2.1.2",
+    "jsr:path": "jsr:@std/path@0.75.1"
+  }
 }
 "#,
     );
@@ -1223,7 +1301,7 @@ mod tests {
     let file_path = PathBuf::from("lockfile.json");
     let lockfile =
       Lockfile::with_lockfile_content(file_path, content, false).unwrap();
-    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.remote.len(), 2);
   }
 
@@ -1254,7 +1332,7 @@ mod tests {
     let file_path = PathBuf::from("lockfile.json");
     let lockfile =
       Lockfile::with_lockfile_content(file_path, content, false).unwrap();
-    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.packages.npm.len(), 2);
     assert_eq!(
       lockfile.content.packages.specifiers,
@@ -1302,5 +1380,71 @@ mod tests {
       err.to_string(),
       "Unable to read lockfile. Lockfile was empty at 'lockfile.json'."
     );
+  }
+
+  #[test]
+  fn adding_workspace_does_not_cause_content_changes() {
+    // should maintain the has_content_changed flag when lockfile empty
+    {
+      let mut lockfile =
+        Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+
+      assert!(!lockfile.has_content_changed());
+      lockfile.set_workspace_config(SetWorkspaceConfigOptions {
+        no_config: false,
+        no_npm: false,
+        config: WorkspaceConfig {
+          root: WorkspaceMemberConfig {
+            dependencies: BTreeSet::from(["jsr:@scope/package".to_string()]),
+            package_json_deps: Default::default(),
+          },
+          members: BTreeMap::new(),
+        },
+      });
+      assert!(!lockfile.has_content_changed()); // should not have changed
+    }
+
+    // should maintain has_content_changed flag when true and lockfile is empty
+    {
+      let mut lockfile =
+        Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+      lockfile.has_content_changed = true;
+
+      lockfile.set_workspace_config(SetWorkspaceConfigOptions {
+        no_config: false,
+        no_npm: false,
+        config: WorkspaceConfig {
+          root: WorkspaceMemberConfig {
+            dependencies: BTreeSet::from(["jsr:@scope/package2".to_string()]),
+            package_json_deps: Default::default(),
+          },
+          members: BTreeMap::new(),
+        },
+      });
+      assert!(lockfile.has_content_changed());
+    }
+
+    // should not maintain the has_content_changed flag when lockfile is not empty
+    {
+      let mut lockfile =
+        Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+      lockfile.insert_redirect("a".to_string(), "b".to_string());
+      // Reset has_content_changed flag by writing
+      lockfile.resolve_write_bytes();
+      assert!(!lockfile.has_content_changed());
+
+      lockfile.set_workspace_config(SetWorkspaceConfigOptions {
+        no_config: false,
+        no_npm: false,
+        config: WorkspaceConfig {
+          root: WorkspaceMemberConfig {
+            dependencies: BTreeSet::from(["jsr:@scope/package".to_string()]),
+            package_json_deps: Default::default(),
+          },
+          members: BTreeMap::new(),
+        },
+      });
+      assert!(lockfile.has_content_changed()); // should have changed since lockfile was not empty
+    }
   }
 }

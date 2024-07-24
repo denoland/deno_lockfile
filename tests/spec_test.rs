@@ -102,15 +102,16 @@ fn config_changes_test(test: &CollectedTest) {
 
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   let mut spec = ConfigChangeSpec::parse(&test.read_to_string().unwrap());
-  let mut lockfile = Lockfile::with_lockfile_content(
+  let unchanged_lockfile = Lockfile::with_lockfile_content(
     test.path.with_extension("lock"),
     &spec.original_text.text,
     false,
   )
   .unwrap();
   for change_and_output in &mut spec.change_and_outputs {
+    let mut lockfile = unchanged_lockfile.clone();
     // setting the new workspace config should change the has_content_changed flag
-    lockfile.has_content_changed = false;
+    // lockfile.has_content_changed = false;
     let config = serde_json::from_str::<WorkspaceConfigContent>(
       &change_and_output.change.text,
     )
@@ -124,20 +125,20 @@ fn config_changes_test(test: &CollectedTest) {
       config: config.clone(),
     });
     assert_eq!(
-      lockfile.has_content_changed,
+      lockfile.has_content_changed(),
       !change_and_output.change.title.contains("no change"),
       "Failed for {}",
       change_and_output.change.title,
     );
 
     // now try resetting it and the flag should remain the same
-    lockfile.has_content_changed = false;
+    // lockfile.has_content_changed = false;
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config,
       no_npm,
       config: config.clone(),
     });
-    assert!(!lockfile.has_content_changed);
+    assert!(!lockfile.has_content_changed());
 
     let expected_text = change_and_output.output.text.clone();
     let actual_text = lockfile.as_json_string();
@@ -151,7 +152,7 @@ fn config_changes_test(test: &CollectedTest) {
         change_and_output.change.title,
       );
     }
-    verify_packages_content(&lockfile.content.packages);
+    verify_packages_content(&lockfile.content().packages);
   }
   if is_update {
     std::fs::write(&test.path, spec.emit()).unwrap();
@@ -171,7 +172,7 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
   )
   .unwrap();
   let original_lockfile = lockfile.clone();
-  lockfile.force_v4();
+  // lockfile.force_v4();
   let actual_text = lockfile.as_json_string();
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   if is_update {

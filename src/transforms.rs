@@ -7,6 +7,7 @@ use thiserror::Error;
 
 pub type JsonMap = serde_json::Map<String, Value>;
 
+/// Attempt to transform a v1 lockfile to a v2 lockfile
 pub fn transform1_to_2(json: JsonMap) -> JsonMap {
   let mut new_map = JsonMap::new();
   new_map.insert("version".to_string(), "2".into());
@@ -14,6 +15,7 @@ pub fn transform1_to_2(json: JsonMap) -> JsonMap {
   new_map
 }
 
+/// Attempt to transform a v2 lockfile to a v3 lockfile
 pub fn transform2_to_3(mut json: JsonMap) -> JsonMap {
   json.insert("version".into(), "3".into());
   if let Some(Value::Object(mut npm_obj)) = json.remove("npm") {
@@ -45,6 +47,7 @@ pub enum TransformError {
   FailedExtractingV3NpmDepNv { id: String },
 }
 
+/// Attempt to transform a v3 lockfile to a v4 lockfile
 pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
   // note: although these functions are found elsewhere in this repo,
   // it is purposefully duplicated here to ensure it never changes
