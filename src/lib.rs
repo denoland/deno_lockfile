@@ -734,9 +734,10 @@ impl Lockfile {
     }
 
     // This weird order is neccessary, because as_json_string will return the original_content, if there
-    let bytes_to_write = self.as_json_string().into_bytes();
+    let json_string = self.as_json_string();
     self.has_content_changed = false;
-    Some(bytes_to_write)
+    self.original_content = Some(json_string.clone());
+    Some(json_string.into_bytes())
   }
 
   pub fn remote(&self) -> &BTreeMap<String, String> {
@@ -1064,6 +1065,30 @@ mod tests {
       "checksum-1".to_string(),
     );
     assert!(lockfile.resolve_write_bytes().is_some());
+  }
+
+  #[test]
+  fn returns_the_correct_value_as_json_even_after_writing() {
+    let file_path =
+      std::env::current_dir().unwrap().join("valid_lockfile.json");
+    let lockfile_json = r#"{
+  "version": "3",
+  "remote": {}
+}
+"#;
+    let mut lockfile =
+      Lockfile::with_lockfile_content(file_path, lockfile_json, false).unwrap();
+
+    // Change lockfile
+    lockfile.insert_remote(
+      "https://deno.land/std@0.71.0/textproto/mod.ts".to_string(),
+      "checksum-1".to_string(),
+    );
+    // Assert it changed
+    assert_ne!(lockfile.as_json_string(), lockfile_json);
+    // Assert that as_json_string returns the changed lockfile even after writing it
+    lockfile.resolve_write_bytes();
+    assert_ne!(lockfile.as_json_string(), lockfile_json);
   }
 
   #[test]
