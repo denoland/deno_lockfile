@@ -884,6 +884,17 @@ impl Lockfile {
       }
     }
   }
+
+  /// Removes a redirect from the lockfile
+  ///
+  /// Returns the target of the removed redirect.
+  pub fn remove_redirect(&mut self, from: &str) -> Option<String> {
+    let removed_value = self.content.redirects.remove(from);
+    if removed_value.is_some() {
+      self.has_content_changed = true;
+    }
+    return removed_value;
+  }
 }
 
 #[cfg(test)]
