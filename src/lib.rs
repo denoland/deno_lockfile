@@ -465,7 +465,7 @@ impl Lockfile {
   }
 
   pub fn has_content_changed(&self) -> bool {
-    return self.has_content_changed;
+    self.has_content_changed
   }
 
   /// Create a new [`Lockfile`] instance from given filename and its content.
@@ -893,7 +893,7 @@ impl Lockfile {
     if removed_value.is_some() {
       self.has_content_changed = true;
     }
-    return removed_value;
+    removed_value
   }
 }
 
