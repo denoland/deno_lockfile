@@ -15,10 +15,9 @@ pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
   output.push_str("{\n  \"version\": \"4\"");
 
   // order these based on auditability
-  let packages = &content.packages;
-  if !packages.specifiers.is_empty() {
+  if !content.specifiers.is_empty() {
     output.push_str(",\n  \"specifiers\": {\n");
-    for (i, (key, value)) in packages.specifiers.iter().enumerate() {
+    for (i, (key, value)) in content.specifiers.iter().enumerate() {
       if i > 0 {
         output.push_str(",\n");
       }
@@ -31,11 +30,11 @@ pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
     output.push_str("\n  }");
   }
 
-  if !packages.jsr.is_empty() {
-    write_jsr(output, &packages.jsr, &packages.specifiers);
+  if !content.jsr.is_empty() {
+    write_jsr(output, &content.jsr, &content.specifiers);
   }
-  if !packages.npm.is_empty() {
-    write_npm(output, &packages.npm);
+  if !content.npm.is_empty() {
+    write_npm(output, &content.npm);
   }
   if !content.redirects.is_empty() {
     write_redirects(output, &content.redirects);

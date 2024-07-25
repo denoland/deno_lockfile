@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::panic::AssertUnwindSafe;
 
 use deno_lockfile::Lockfile;
-use deno_lockfile::PackagesContent;
+use deno_lockfile::LockfileContent;
 use deno_lockfile::SetWorkspaceConfigOptions;
 use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
@@ -162,7 +162,7 @@ fn config_changes_test(test: &CollectedTest) {
         change_and_output.change.title,
       );
     }
-    verify_packages_content(&lockfile.content().packages);
+    verify_packages_content(&lockfile.content());
   }
   if is_update {
     std::fs::write(&test.path, spec.emit()).unwrap();
@@ -238,7 +238,7 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
   }
 }
 
-fn verify_packages_content(packages: &PackagesContent) {
+fn verify_packages_content(packages: &LockfileContent) {
   // verify the specifiers
   for id in packages.specifiers.values() {
     if let Some(npm_id) = id.strip_prefix("npm:") {

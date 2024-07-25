@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
+use crate::JsrPackageInfo;
 use crate::NpmPackageInfo;
-use crate::PackagesContent;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum LockfilePkgId {
@@ -64,19 +64,18 @@ pub struct LockfilePackageGraph {
 
 impl LockfilePackageGraph {
   pub fn from_lockfile<'a>(
-    content: PackagesContent,
+    npm: BTreeMap<String, NpmPackageInfo>,
+    jsr: BTreeMap<String, JsrPackageInfo>,
+    specifiers: BTreeMap<String, String>,
     remotes: BTreeMap<String, String>,
     old_config_file_packages: impl Iterator<Item = &'a str>,
   ) -> Self {
     let mut root_packages =
-      HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
-        content.specifiers.len(),
-      );
+      HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(specifiers.len());
     // collect the specifiers to version mappings
-    let package_count =
-      content.specifiers.len() + content.jsr.len() + content.npm.len();
+    let package_count = specifiers.len() + jsr.len() + npm.len();
     let mut packages = HashMap::with_capacity(package_count);
-    for (key, value) in content.specifiers {
+    for (key, value) in specifiers {
       if let Some(value) = value.strip_prefix("npm:") {
         root_packages.insert(
           LockfilePkgReq(key.to_string()),
@@ -88,7 +87,7 @@ impl LockfilePackageGraph {
       }
     }
 
-    for (nv, content_package) in content.jsr {
+    for (nv, content_package) in jsr {
       packages.insert(
         LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())),
         LockfileGraphPackage::Jsr(LockfileJsrGraphPackage {
@@ -103,7 +102,7 @@ impl LockfilePackageGraph {
       );
     }
 
-    for (id, package) in content.npm {
+    for (id, package) in npm {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
@@ -252,12 +251,14 @@ impl LockfilePackageGraph {
 
   pub fn populate_packages(
     self,
-    packages: &mut PackagesContent,
+    npm: &mut BTreeMap<String, NpmPackageInfo>,
+    jsr: &mut BTreeMap<String, JsrPackageInfo>,
+    specifiers: &mut BTreeMap<String, String>,
     remotes: &mut BTreeMap<String, String>,
   ) {
     *remotes = self.remotes;
     for (req, id) in self.root_packages {
-      packages.specifiers.insert(
+      specifiers.insert(
         req.0,
         match id {
           LockfilePkgId::Npm(id) => format!("npm:{}", id.0),
@@ -269,7 +270,7 @@ impl LockfilePackageGraph {
     for (id, package) in self.packages {
       match package {
         LockfileGraphPackage::Jsr(package) => {
-          packages.jsr.insert(
+          jsr.insert(
             match id {
               LockfilePkgId::Jsr(nv) => nv.0,
               LockfilePkgId::Npm(_) => unreachable!(),
@@ -285,7 +286,7 @@ impl LockfilePackageGraph {
           );
         }
         LockfileGraphPackage::Npm(package) => {
-          packages.npm.insert(
+          npm.insert(
             match id {
               LockfilePkgId::Jsr(_) => unreachable!(),
               LockfilePkgId::Npm(id) => id.0,

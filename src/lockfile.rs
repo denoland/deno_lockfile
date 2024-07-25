@@ -53,8 +53,11 @@ pub struct JsrPackageInfo {
   pub dependencies: BTreeSet<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Hash)]
-pub struct PackagesContent {
+#[derive(Debug, Clone, Serialize, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct LockfileContent {
+  /// The lockfile version
+  pub(crate) version: String,
   /// Mapping between requests for deno specifiers and resolved packages, eg.
   /// {
   ///   "jsr:@foo/bar@^2.1": "jsr:@foo/bar@2.1.3",
@@ -90,23 +93,6 @@ pub struct PackagesContent {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub npm: BTreeMap<String, NpmPackageInfo>,
-}
-
-impl PackagesContent {
-  fn is_empty(&self) -> bool {
-    self.specifiers.is_empty() && self.npm.is_empty() && self.jsr.is_empty()
-  }
-}
-
-#[derive(Debug, Clone, Serialize, Hash)]
-#[serde(rename_all = "camelCase")]
-pub struct LockfileContent {
-  /// The lockfile version
-  pub(crate) version: String,
-  // order these based on auditability
-  #[serde(skip_serializing_if = "PackagesContent::is_empty")]
-  #[serde(default)]
-  pub packages: PackagesContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub redirects: BTreeMap<String, String>,
@@ -121,6 +107,7 @@ pub struct LockfileContent {
 }
 
 impl LockfileContent {
+  /// Parse the content of a JSON string representing a lockfile in the latest version
   pub fn from_json(
     json: serde_json::Value,
   ) -> Result<Self, DeserializationError> {
@@ -180,6 +167,124 @@ impl LockfileContent {
       return Ok(Self::empty());
     };
 
+    // TODO: This code is just copied from the previous implementation, that allowed parsing old lockfiles. It can probably be significantly simplified.
+    let (jsr, specifiers, npm) = {
+      let specifiers: BTreeMap<String, String> =
+        deserialize_section(&mut json, "specifiers")?;
+      let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
+      let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
+        deserialize_section(&mut json, "npm")?;
+      if !raw_npm.is_empty() {
+        // collect the versions
+        let mut version_by_dep_name: HashMap<String, String> =
+          HashMap::with_capacity(raw_npm.len());
+        for id in raw_npm.keys() {
+          let Some((name, version)) = extract_nv_from_id(id) else {
+            return Err(DeserializationError::InvalidNpmPackageId(
+              id.to_string(),
+            ));
+          };
+          version_by_dep_name.insert(name.to_string(), version.to_string());
+        }
+
+        // now go through and create the resolved npm package information
+        for (key, value) in raw_npm {
+          let mut dependencies = BTreeMap::new();
+          for dep in value.dependencies {
+            let (left, right) = match extract_nv_from_id(&dep) {
+              Some((name, version)) => (name, version),
+              None => match version_by_dep_name.get(&dep) {
+                Some(version) => (dep.as_str(), version.as_str()),
+                None => return Err(DeserializationError::MissingPackage(dep)),
+              },
+            };
+            let (key, package_name, version) = match right.strip_prefix("npm:")
+            {
+              Some(right) => {
+                // ex. key@npm:package-a@version
+                match extract_nv_from_id(right) {
+                  Some((package_name, version)) => {
+                    (left, package_name, version)
+                  }
+                  None => {
+                    return Err(
+                      DeserializationError::InvalidNpmPackageDependency(
+                        dep.to_string(),
+                      ),
+                    );
+                  }
+                }
+              }
+              None => (left, left, right),
+            };
+            dependencies
+              .insert(key.to_string(), format!("{}@{}", package_name, version));
+          }
+          npm.insert(
+            key,
+            NpmPackageInfo {
+              integrity: value.integrity,
+              dependencies,
+            },
+          );
+        }
+      }
+      let mut jsr: BTreeMap<String, JsrPackageInfo> = Default::default();
+      {
+        let raw_jsr: BTreeMap<String, RawJsrPackageInfo> =
+          deserialize_section(&mut json, "jsr")?;
+        if !raw_jsr.is_empty() {
+          // collect the specifier information
+          let mut to_resolved_specifiers: HashMap<&str, Option<&str>> =
+            HashMap::with_capacity(specifiers.len() * 2);
+          // first insert the specifiers that should be left alone
+          for specifier in specifiers.keys() {
+            to_resolved_specifiers.insert(specifier, None);
+          }
+          // then insert the mapping specifiers
+          for specifier in specifiers.keys() {
+            let Some((name, req)) = split_pkg_req(specifier) else {
+              return Err(DeserializationError::InvalidPackageSpecifier(
+                specifier.to_string(),
+              ));
+            };
+            if req.is_some() {
+              let entry = to_resolved_specifiers.entry(name);
+              // if an entry is occupied that means there's multiple specifiers
+              // for the same name, such as one without a req, so ignore inserting
+              // here
+              if let std::collections::hash_map::Entry::Vacant(entry) = entry {
+                entry.insert(Some(specifier));
+              }
+            }
+          }
+
+          // now go through the dependencies mapping to the new ones
+          for (key, value) in raw_jsr {
+            let mut dependencies = BTreeSet::new();
+            for dep in value.dependencies {
+              let Some(maybe_specifier) =
+                to_resolved_specifiers.get(dep.as_str())
+              else {
+                todo!();
+              };
+              dependencies
+                .insert(maybe_specifier.map(|s| s.to_string()).unwrap_or(dep));
+            }
+            jsr.insert(
+              key,
+              JsrPackageInfo {
+                integrity: value.integrity,
+                dependencies,
+              },
+            );
+          }
+        }
+      }
+
+      (jsr, specifiers, npm)
+    };
+
     Ok(LockfileContent {
       version: json
         .remove("version")
@@ -188,132 +293,9 @@ impl LockfileContent {
           _ => None,
         })
         .unwrap_or_else(|| "3".to_string()),
-      packages: {
-        let specifiers: BTreeMap<String, String> =
-          deserialize_section(&mut json, "specifiers")?;
-        let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
-        let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
-          deserialize_section(&mut json, "npm")?;
-        if !raw_npm.is_empty() {
-          // collect the versions
-          let mut version_by_dep_name: HashMap<String, String> =
-            HashMap::with_capacity(raw_npm.len());
-          for id in raw_npm.keys() {
-            let Some((name, version)) = extract_nv_from_id(id) else {
-              return Err(DeserializationError::InvalidNpmPackageId(
-                id.to_string(),
-              ));
-            };
-            version_by_dep_name.insert(name.to_string(), version.to_string());
-          }
-
-          // now go through and create the resolved npm package information
-          for (key, value) in raw_npm {
-            let mut dependencies = BTreeMap::new();
-            for dep in value.dependencies {
-              let (left, right) = match extract_nv_from_id(&dep) {
-                Some((name, version)) => (name, version),
-                None => match version_by_dep_name.get(&dep) {
-                  Some(version) => (dep.as_str(), version.as_str()),
-                  None => {
-                    return Err(DeserializationError::MissingPackage(dep))
-                  }
-                },
-              };
-              let (key, package_name, version) =
-                match right.strip_prefix("npm:") {
-                  Some(right) => {
-                    // ex. key@npm:package-a@version
-                    match extract_nv_from_id(right) {
-                      Some((package_name, version)) => {
-                        (left, package_name, version)
-                      }
-                      None => {
-                        return Err(
-                          DeserializationError::InvalidNpmPackageDependency(
-                            dep.to_string(),
-                          ),
-                        );
-                      }
-                    }
-                  }
-                  None => (left, left, right),
-                };
-              dependencies.insert(
-                key.to_string(),
-                format!("{}@{}", package_name, version),
-              );
-            }
-            npm.insert(
-              key,
-              NpmPackageInfo {
-                integrity: value.integrity,
-                dependencies,
-              },
-            );
-          }
-        }
-        let mut jsr: BTreeMap<String, JsrPackageInfo> = Default::default();
-        {
-          let raw_jsr: BTreeMap<String, RawJsrPackageInfo> =
-            deserialize_section(&mut json, "jsr")?;
-          if !raw_jsr.is_empty() {
-            // collect the specifier information
-            let mut to_resolved_specifiers: HashMap<&str, Option<&str>> =
-              HashMap::with_capacity(specifiers.len() * 2);
-            // first insert the specifiers that should be left alone
-            for specifier in specifiers.keys() {
-              to_resolved_specifiers.insert(specifier, None);
-            }
-            // then insert the mapping specifiers
-            for specifier in specifiers.keys() {
-              let Some((name, req)) = split_pkg_req(specifier) else {
-                return Err(DeserializationError::InvalidPackageSpecifier(
-                  specifier.to_string(),
-                ));
-              };
-              if req.is_some() {
-                let entry = to_resolved_specifiers.entry(name);
-                // if an entry is occupied that means there's multiple specifiers
-                // for the same name, such as one without a req, so ignore inserting
-                // here
-                if let std::collections::hash_map::Entry::Vacant(entry) = entry
-                {
-                  entry.insert(Some(specifier));
-                }
-              }
-            }
-
-            // now go through the dependencies mapping to the new ones
-            for (key, value) in raw_jsr {
-              let mut dependencies = BTreeSet::new();
-              for dep in value.dependencies {
-                let Some(maybe_specifier) =
-                  to_resolved_specifiers.get(dep.as_str())
-                else {
-                  todo!();
-                };
-                dependencies.insert(
-                  maybe_specifier.map(|s| s.to_string()).unwrap_or(dep),
-                );
-              }
-              jsr.insert(
-                key,
-                JsrPackageInfo {
-                  integrity: value.integrity,
-                  dependencies,
-                },
-              );
-            }
-          }
-        }
-
-        PackagesContent {
-          jsr,
-          specifiers,
-          npm,
-        }
-      },
+      jsr,
+      specifiers,
+      npm,
       redirects: deserialize_section(&mut json, "redirects")?,
       remote: deserialize_section(&mut json, "remote")?,
       workspace: deserialize_section(&mut json, "workspace")?,
@@ -323,15 +305,19 @@ impl LockfileContent {
   fn empty() -> Self {
     Self {
       version: "4".to_string(),
-      packages: Default::default(),
       redirects: Default::default(),
       remote: BTreeMap::new(),
       workspace: Default::default(),
+      jsr: Default::default(),
+      specifiers: Default::default(),
+      npm: Default::default(),
     }
   }
 
   pub fn is_empty(&self) -> bool {
-    self.packages.is_empty()
+    self.jsr.is_empty()
+      && self.npm.is_empty()
+      && self.specifiers.is_empty()
       && self.redirects.is_empty()
       && self.remote.is_empty()
       && self.workspace.is_empty()
@@ -483,16 +469,24 @@ impl Lockfile {
     }
 
     // Remove removed dependencies from packages and remote
-    let packages = std::mem::take(&mut self.content.packages);
+    let npm = std::mem::take(&mut self.content.npm);
+    let jsr = std::mem::take(&mut self.content.jsr);
+    let specifiers = std::mem::take(&mut self.content.specifiers);
     let remotes = std::mem::take(&mut self.content.remote);
     let mut graph = LockfilePackageGraph::from_lockfile(
-      packages,
+      npm,
+      jsr,
+      specifiers,
       remotes,
       old_deps.iter().map(|dep| dep.as_str()),
     );
     graph.remove_root_packages(removed_deps.into_iter());
-    graph
-      .populate_packages(&mut self.content.packages, &mut self.content.remote);
+    graph.populate_packages(
+      &mut self.content.npm,
+      &mut self.content.jsr,
+      &mut self.content.specifiers,
+      &mut self.content.remote,
+    );
   }
 
   /// Gets the bytes that should be written to the disk.
@@ -556,7 +550,7 @@ impl Lockfile {
       .map(|dep| (dep.name, dep.id))
       .collect::<BTreeMap<String, String>>();
 
-    let entry = self.content.packages.npm.entry(package_info.serialized_id);
+    let entry = self.content.npm.entry(package_info.serialized_id);
     let package_info = NpmPackageInfo {
       integrity: package_info.integrity,
       dependencies,
@@ -581,11 +575,7 @@ impl Lockfile {
     serialized_package_req: String,
     serialized_package_id: String,
   ) {
-    let entry = self
-      .content
-      .packages
-      .specifiers
-      .entry(serialized_package_req);
+    let entry = self.content.specifiers.entry(serialized_package_req);
     match entry {
       Entry::Vacant(entry) => {
         entry.insert(serialized_package_id);
@@ -606,7 +596,7 @@ impl Lockfile {
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
   pub fn insert_package(&mut self, name: String, integrity: String) {
-    let entry = self.content.packages.jsr.entry(name);
+    let entry = self.content.jsr.entry(name);
     match entry {
       Entry::Vacant(entry) => {
         entry.insert(JsrPackageInfo {
@@ -631,7 +621,7 @@ impl Lockfile {
     name: &str,
     deps: impl Iterator<Item = String>,
   ) {
-    if let Some(pkg) = self.content.packages.jsr.get_mut(name) {
+    if let Some(pkg) = self.content.jsr.get_mut(name) {
       let start_count = pkg.dependencies.len();
       pkg.dependencies.extend(deps);
       let end_count = pkg.dependencies.len();
@@ -1146,9 +1136,9 @@ mod tests {
     let lockfile =
       Lockfile::with_lockfile_content(file_path, content, false).unwrap();
     assert_eq!(lockfile.content.version, "4");
-    assert_eq!(lockfile.content.packages.npm.len(), 2);
+    assert_eq!(lockfile.content.npm.len(), 2);
     assert_eq!(
-      lockfile.content.packages.specifiers,
+      lockfile.content.specifiers,
       BTreeMap::from([(
         "npm:nanoid".to_string(),
         "npm:nanoid@3.3.4".to_string()
