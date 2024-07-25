@@ -472,12 +472,10 @@ impl Lockfile {
     let npm = std::mem::take(&mut self.content.npm);
     let jsr = std::mem::take(&mut self.content.jsr);
     let specifiers = std::mem::take(&mut self.content.specifiers);
-    let remotes = std::mem::take(&mut self.content.remote);
     let mut graph = LockfilePackageGraph::from_lockfile(
       npm,
       jsr,
       specifiers,
-      remotes,
       old_deps.iter().map(|dep| dep.as_str()),
     );
     graph.remove_root_packages(removed_deps.into_iter());
@@ -485,7 +483,6 @@ impl Lockfile {
       &mut self.content.npm,
       &mut self.content.jsr,
       &mut self.content.specifiers,
-      &mut self.content.remote,
     );
   }
 

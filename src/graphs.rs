@@ -55,11 +55,10 @@ struct LockfileJsrGraphPackage {
 }
 
 /// Graph used to analyze a lockfile to determine which packages
-/// and remotes can be removed based on config file changes.
+/// can be removed based on config file changes.
 pub struct LockfilePackageGraph {
   root_packages: HashMap<LockfilePkgReq, LockfilePkgId>,
   packages: HashMap<LockfilePkgId, LockfileGraphPackage>,
-  remotes: BTreeMap<String, String>,
 }
 
 impl LockfilePackageGraph {
@@ -67,7 +66,6 @@ impl LockfilePackageGraph {
     npm: BTreeMap<String, NpmPackageInfo>,
     jsr: BTreeMap<String, JsrPackageInfo>,
     specifiers: BTreeMap<String, String>,
-    remotes: BTreeMap<String, String>,
     old_config_file_packages: impl Iterator<Item = &'a str>,
   ) -> Self {
     let mut root_packages =
@@ -167,7 +165,6 @@ impl LockfilePackageGraph {
     Self {
       root_packages,
       packages,
-      remotes,
     }
   }
 
@@ -254,9 +251,7 @@ impl LockfilePackageGraph {
     npm: &mut BTreeMap<String, NpmPackageInfo>,
     jsr: &mut BTreeMap<String, JsrPackageInfo>,
     specifiers: &mut BTreeMap<String, String>,
-    remotes: &mut BTreeMap<String, String>,
   ) {
-    *remotes = self.remotes;
     for (req, id) in self.root_packages {
       specifiers.insert(
         req.0,
