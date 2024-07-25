@@ -151,7 +151,6 @@ impl WorkspaceConfig {
     current_config: &WorkspaceConfigContent,
   ) -> Self {
     let mut config = set_options.config;
-    // if specified, don't modify the package.json dependencies
 
     let no_npm = set_options.no_npm || set_options.no_config;
     let no_config = set_options.no_config;
@@ -190,8 +189,8 @@ impl WorkspaceConfig {
       })
       .collect();
 
-    // Add the remaining previously existing members, if no_config was set
     if no_config {
+      // Preserve the current config members
       config.members.extend(
         current_config
           .members
@@ -203,7 +202,7 @@ impl WorkspaceConfig {
       );
     }
 
-    return config;
+    config
   }
 }
 
