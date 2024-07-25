@@ -162,7 +162,7 @@ fn config_changes_test(test: &CollectedTest) {
         change_and_output.change.title,
       );
     }
-    verify_packages_content(&lockfile.content());
+    verify_packages_content(lockfile.content());
   }
   if is_update {
     std::fs::write(&test.path, spec.emit()).unwrap();
