@@ -76,18 +76,26 @@ type Lockfile4 = {
   // If a URL returned a redirect, the redirect target URL will be listed here
   // Example: "https://deno.land/std@0.120.0/async/deadline.ts": "1d6ac7aeaee22f75eb86e4e105d6161118aad7b41ae2dd14f4cfd3bf97472b93"
   remote?: Record<HttpsUrl, string>;
-  // TODO: Document
-  workspace: {
-    // JSR dependencies?
-    dependencies: [
-      "jsr:@scope/package_a",
-      "jsr:@std/assert@^0.218.2",
-      "jsr:@std/path@^0.218.2"
-    ];
-    // Package.json?
-    packageJson: {
-      dependencies: ["npm:ts-morph"];
+  // Some tracked information about the workspace
+  workspace?: {
+    // jsr dependencies
+    dependencies?: Array<JsrSpecifier>;
+    // npm dependencies
+    packageJson?: {
+      dependencies: Array<NpmSpecifier>;
     };
+    // Members of the workspace
+    members?: Record<
+      string,
+      {
+        // jsr dependencies of the member
+        dependencies?: Array<JsrSpecifier>;
+        // npm dependencies of the member
+        packageJson?: {
+          dependencies: Array<NpmSpecifier>;
+        };
+      }
+    >;
   };
 };
 ```
