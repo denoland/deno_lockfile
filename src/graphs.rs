@@ -174,14 +174,15 @@ impl LockfilePackageGraph {
 
   pub fn remove_root_packages(
     &mut self,
-    package_reqs: impl Iterator<Item = String>,
+    package_reqs: impl Iterator<Item = impl Into<String>>,
   ) {
     let mut root_ids = Vec::new();
 
     // collect the root ids being removed
     {
-      let mut pending_reqs =
-        package_reqs.map(LockfilePkgReq).collect::<VecDeque<_>>();
+      let mut pending_reqs = package_reqs
+        .map(|req| LockfilePkgReq(req.into()))
+        .collect::<VecDeque<_>>();
       let mut visited_root_packages =
         HashSet::with_capacity(self.root_packages.len());
       visited_root_packages.extend(pending_reqs.iter().cloned());
