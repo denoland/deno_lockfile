@@ -95,6 +95,12 @@ pub struct LockfileContent {
   pub(crate) workspace: WorkspaceConfigContent,
 }
 
+impl Default for LockfileContent {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl LockfileContent {
   /// Parse the content of a JSON string representing a lockfile in the latest version
   pub fn from_json(
@@ -153,7 +159,7 @@ impl LockfileContent {
     use serde_json::Value;
 
     let Value::Object(mut json) = json else {
-      return Ok(Self::empty());
+      return Ok(Self::new());
     };
 
     // TODO: This code is just copied from the previous implementation, that allowed parsing old lockfiles. It can probably be significantly simplified.
@@ -293,7 +299,7 @@ impl LockfileContent {
 
   /// Convert the lockfile content to a v4 lockfile
   ///
-  /// You should probably use [Lockfile::]
+  /// You should probably use [super::Lockfile::to_json] or [super::Lockfile::resolve_write_bytes]
   pub fn to_json(&self) -> String {
     // TODO: Think about adding back support for older lockfile versions
     let mut text = String::new();
@@ -301,11 +307,12 @@ impl LockfileContent {
     text
   }
 
-  pub fn empty() -> Self {
+  /// Create a new empty lockfile content of the latest version
+  pub fn new() -> Self {
     Self {
       version: "4".to_string(),
       redirects: Default::default(),
-      remote: BTreeMap::new(),
+      remote: Default::default(),
       workspace: Default::default(),
       jsr: Default::default(),
       specifiers: Default::default(),
@@ -313,6 +320,7 @@ impl LockfileContent {
     }
   }
 
+  /// Check if this lockfile is empty
   pub fn is_empty(&self) -> bool {
     self.jsr.is_empty()
       && self.npm.is_empty()

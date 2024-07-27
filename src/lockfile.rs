@@ -48,7 +48,7 @@ impl Lockfile {
     Lockfile {
       overwrite,
       has_content_changed: false,
-      content: LockfileContent::empty(),
+      content: LockfileContent::new(),
       filename,
       original_content: Option::Some(String::new()),
     }
