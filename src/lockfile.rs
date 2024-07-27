@@ -43,8 +43,8 @@ pub struct Lockfile {
 
 /// Represents a `deno.lock` lockfile
 impl Lockfile {
-  /// Create a new empty lockfile
-  pub fn new_empty(filename: PathBuf, overwrite: bool) -> Lockfile {
+  /// Create a new empty [`Lockfile`] instance
+  pub fn new(filename: PathBuf, overwrite: bool) -> Lockfile {
     Lockfile {
       overwrite,
       has_content_changed: false,
@@ -54,9 +54,7 @@ impl Lockfile {
     }
   }
 
-  /// Create a new [`Lockfile`] instance from given filename and its content.
-  ///
-  // TODO: Rename this function to `new` or `from_json`
+  /// Create a new [`Lockfile`] instance with the supplied content
   pub fn with_lockfile_content(
     filename: PathBuf,
     file_content: &str,
@@ -88,7 +86,7 @@ impl Lockfile {
 
     // Writing a lock file always uses the new format.
     if overwrite {
-      return Ok(Lockfile::new_empty(filename, overwrite));
+      return Ok(Lockfile::new(filename, overwrite));
     }
 
     if file_content.trim().is_empty() {
@@ -905,7 +903,7 @@ mod tests {
   fn should_maintain_changed_false_flag_when_adding_a_workspace_to_an_empty_lockfile(
   ) {
     // should maintain the has_content_changed flag when lockfile empty
-    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), false);
+    let mut lockfile = Lockfile::new(PathBuf::from("./deno.lock"), false);
 
     assert!(!lockfile.has_content_changed());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
@@ -926,7 +924,7 @@ mod tests {
   fn should_maintain_changed_true_flag_when_adding_a_workspace_to_an_empty_lockfile(
   ) {
     // should maintain has_content_changed flag when true and lockfile is empty
-    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), false);
+    let mut lockfile = Lockfile::new(PathBuf::from("./deno.lock"), false);
     lockfile.insert_redirect("a".to_string(), "b".to_string());
     lockfile.remove_redirect("a");
 
@@ -947,7 +945,7 @@ mod tests {
   #[test]
   fn should_be_changed_if_a_workspace_is_added_and_the_lockfile_is_not_emtpy() {
     // should not maintain the has_content_changed flag when lockfile is not empty
-    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+    let mut lockfile = Lockfile::new(PathBuf::from("./deno.lock"), true);
     lockfile.insert_redirect("a".to_string(), "b".to_string());
     // Reset has_content_changed flag by writing
     lockfile.resolve_write_bytes();
@@ -971,7 +969,7 @@ mod tests {
   #[test]
   fn should_be_changed_if_a_dep_is_removed_from_the_workspace() {
     // Setup
-    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+    let mut lockfile = Lockfile::new(PathBuf::from("./deno.lock"), true);
     lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
@@ -1004,7 +1002,7 @@ mod tests {
   #[test]
   fn should_be_changed_if_a_dep_is_moved_workspace_root_to_a_member_a() {
     // Setup
-    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+    let mut lockfile = Lockfile::new(PathBuf::from("./deno.lock"), true);
     lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
@@ -1040,7 +1038,7 @@ mod tests {
   #[test]
   fn should_be_changed_if_a_dep_is_moved_workspace_root_to_a_member_b() {
     // Setup
-    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+    let mut lockfile = Lockfile::new(PathBuf::from("./deno.lock"), true);
     lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
@@ -1076,7 +1074,7 @@ mod tests {
   #[test]
   fn should_preserve_workspace_on_no_npm() {
     // Setup
-    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
+    let mut lockfile = Lockfile::new(PathBuf::from("./deno.lock"), true);
     lockfile.insert_jsr_package("alpha".to_string(), "checksum".to_string());
     lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
     lockfile.insert_jsr_package("gamma".to_string(), "checksum".to_string());
