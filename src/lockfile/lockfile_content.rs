@@ -89,10 +89,10 @@ pub struct LockfileContent {
   // serializing this when it's empty
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
   #[serde(default)]
-  pub(crate) remote: BTreeMap<String, String>,
+  pub remote: BTreeMap<String, String>,
   #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
   #[serde(default)]
-  pub(crate) workspace: WorkspaceConfigContent,
+  pub workspace: WorkspaceConfigContent,
 }
 
 impl Default for LockfileContent {

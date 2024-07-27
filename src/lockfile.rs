@@ -5,6 +5,7 @@ mod workspace_config;
 
 pub use lockfile_content::JsrPackageInfo;
 pub use lockfile_content::LockfileContent;
+pub use lockfile_content::NpmPackageDependencyLockfileInfo;
 pub use lockfile_content::NpmPackageInfo;
 pub use lockfile_content::NpmPackageLockfileInfo;
 use std::collections::btree_map::Entry;
