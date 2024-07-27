@@ -151,7 +151,7 @@ fn config_changes_test(test: &CollectedTest) {
     assert!(!lockfile.has_content_changed());
 
     let expected_text = change_and_output.output.text.clone();
-    let actual_text = lockfile.as_json_string();
+    let actual_text = lockfile.to_json();
     if is_update {
       change_and_output.output.text = actual_text;
     } else {
@@ -187,7 +187,7 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
   let mut upgraded_lockfile = unchanged_lockfile.clone();
   upgraded_lockfile.insert_redirect("from2351235".into(), "to2135215".into());
   upgraded_lockfile.remove_redirect("from2351235");
-  let upgraded_text = upgraded_lockfile.as_json_string();
+  let upgraded_text = upgraded_lockfile.to_json();
 
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   if is_update {
@@ -213,7 +213,7 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
         name: "v3_emit".to_string(),
         result: TestResult::from_maybe_panic(|| {
           assert_eq!(
-            unchanged_lockfile.as_json_string().trim(),
+            unchanged_lockfile.to_json().trim(),
             original_section.text.trim(),
             "original emit failed"
           );
@@ -231,7 +231,7 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
           false,
         )
         .unwrap();
-        assert_eq!(lockfile.as_json_string().trim(), upgraded_text.trim());
+        assert_eq!(lockfile.to_json().trim(), upgraded_text.trim());
       }),
     });
     TestResult::SubTests(sub_tests)

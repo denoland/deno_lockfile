@@ -302,6 +302,16 @@ impl LockfileContent {
     })
   }
 
+  /// Convert the lockfile content to a v4 lockfile
+  ///
+  /// You should probably use [Lockfile::]
+  pub fn to_json(&self) -> String {
+    // TODO: Think about adding back support for older lockfile versions
+    let mut text = String::new();
+    print_v4_content(&self, &mut text);
+    return text;
+  }
+
   fn empty() -> Self {
     Self {
       version: "4".to_string(),
@@ -340,7 +350,7 @@ pub struct Lockfile {
   filename: PathBuf,
   /// Original content of the lockfile
   ///
-  /// We need to store this, so that [Lockfile::as_json_string] can return the exact original content, if there were no changes
+  /// We need to store this, so that [Lockfile::to_json] can return the exact original content, if there were no changes
   original_content: Option<String>,
 }
 
@@ -418,20 +428,21 @@ impl Lockfile {
   }
 
   /// Get the lockfile contents as a formatted JSON string
-  pub fn as_json_string(&self) -> String {
+  ///
+  /// If no changes were done, this will return the exact lockfile content that was used to create this lockfile.
+  ///
+  /// If the lockfile was changed, it will be returned as an upgraded v4 lockfile
+  pub fn to_json(&self) -> String {
     if let Some(original_content) = &self.original_content {
       if !self.has_content_changed && !self.overwrite {
         return original_content.clone();
       }
     }
 
-    if self.content.version == "4" {
-      let mut text = String::new();
-      print_v4_content(&self.content, &mut text);
-      return text;
+    if self.content.version != "4" {
+      panic!("Should never happen; for now only v4 lockfiles can be printed")
     }
-
-    panic!("Should never happen, as the content version should get set to four on loading")
+    self.content.to_json()
   }
 
   pub fn set_workspace_config(&mut self, options: SetWorkspaceConfigOptions) {
@@ -501,8 +512,8 @@ impl Lockfile {
       return None;
     }
 
-    // This weird order is neccessary, because as_json_string will return the original_content, if there
-    let json_string = self.as_json_string();
+    // This weird order is neccessary, because to_json will return the original_content, if there
+    let json_string = self.to_json();
     self.has_content_changed = false;
     self.original_content = Some(json_string.clone());
     Some(json_string.into_bytes())
@@ -860,10 +871,10 @@ mod tests {
       "checksum-1".to_string(),
     );
     // Assert it changed
-    assert_ne!(lockfile.as_json_string(), lockfile_json);
-    // Assert that as_json_string returns the changed lockfile even after writing it
+    assert_ne!(lockfile.to_json(), lockfile_json);
+    // Assert that to_json returns the changed lockfile even after writing it
     lockfile.resolve_write_bytes();
-    assert_ne!(lockfile.as_json_string(), lockfile_json);
+    assert_ne!(lockfile.to_json(), lockfile_json);
   }
 
   #[test]
@@ -972,7 +983,7 @@ mod tests {
       "https://deno.land/x/other@0.1.0/mod.ts".to_string(),
     );
     assert_eq!(
-      lockfile.as_json_string(),
+      lockfile.to_json(),
       r#"{
   "version": "4",
   "redirects": {
@@ -1005,7 +1016,7 @@ mod tests {
       "https://deno.land/std@0.190.0/mod.ts".to_string(),
     );
     assert!(!lockfile.has_content_changed());
-    assert_eq!(lockfile.as_json_string(), original_content,);
+    assert_eq!(lockfile.to_json(), original_content,);
   }
 
   #[test]
@@ -1037,7 +1048,7 @@ mod tests {
       "https://deno.land/std@0.190.1/other.ts".to_string(),
     );
     assert_eq!(
-      lockfile.as_json_string(),
+      lockfile.to_json(),
       r#"{
   "version": "4",
   "redirects": {
@@ -1080,7 +1091,7 @@ mod tests {
       "jsr:@foo/bar@2.1.2".to_string(),
     );
     assert_eq!(
-      lockfile.as_json_string(),
+      lockfile.to_json(),
       r#"{
   "version": "4",
   "specifiers": {
