@@ -354,7 +354,9 @@ pub struct Lockfile {
   original_content: Option<String>,
 }
 
+/// Represents a `deno.lock` lockfile
 impl Lockfile {
+  /// Create a new empty lockfile
   pub fn new_empty(filename: PathBuf, overwrite: bool) -> Lockfile {
     Lockfile {
       overwrite,
@@ -365,13 +367,9 @@ impl Lockfile {
     }
   }
 
-  pub fn has_content_changed(&self) -> bool {
-    self.has_content_changed
-  }
-
   /// Create a new [`Lockfile`] instance from given filename and its content.
   ///
-  /// TODO: Is this function our main way
+  // TODO: Rename this function to `new` or `from_json`
   pub fn with_lockfile_content(
     filename: PathBuf,
     file_content: &str,
@@ -445,65 +443,9 @@ impl Lockfile {
     self.content.to_json()
   }
 
-  pub fn set_workspace_config(&mut self, options: SetWorkspaceConfigOptions) {
-    let was_empty_before = self.content.is_empty();
-    let old_workspace_config = self.content.workspace.clone();
-
-    // Update the workspace
-    let config = WorkspaceConfig::new(options, &self.content.workspace);
-    self.content.workspace.update(config);
-
-    // We dont need to do the rest, if we changed nothing
-    if old_workspace_config == self.content.workspace {
-      return;
-    }
-
-    // If the lockfile is empty, it's most likely not created yet and so
-    // we don't want workspace configuration being added to the lockfile to cause
-    // a lockfile to be created.
-    // So we only set has_content_changed if it wasnt empty before
-    if !was_empty_before {
-      // revert it back so this change doesn't by itself cause
-      // a lockfile to be created.
-      self.has_content_changed = true;
-    }
-
-    let old_deps: BTreeSet<&String> =
-      old_workspace_config.get_all_dep_reqs().collect();
-    let new_deps: BTreeSet<&String> =
-      self.content.workspace.get_all_dep_reqs().collect();
-    let removed_deps: BTreeSet<&String> =
-      old_deps.difference(&new_deps).copied().collect();
-
-    if removed_deps.is_empty() {
-      return;
-    }
-
-    // Remove removed dependencies from packages and remote
-    let npm = std::mem::take(&mut self.content.npm);
-    let jsr = std::mem::take(&mut self.content.jsr);
-    let specifiers = std::mem::take(&mut self.content.specifiers);
-    let mut graph = LockfilePackageGraph::from_lockfile(
-      npm,
-      jsr,
-      specifiers,
-      old_deps.iter().map(|dep| dep.as_str()),
-    );
-    graph.remove_root_packages(removed_deps.into_iter());
-    graph.populate_packages(
-      &mut self.content.npm,
-      &mut self.content.jsr,
-      &mut self.content.specifiers,
-    );
-  }
-
   /// Gets the bytes that should be written to the disk.
   ///
-  /// Ideally when the caller should use an "atomic write"
-  /// when writing this—write to a temporary file beside the
-  /// lockfile, then rename to overwrite. This will make the
-  /// lockfile more resilient when multiple processes are
-  /// writing to it.
+  /// Ideally when the caller should use an "atomic write" when writing this—write to a temporary file beside the lockfile, then rename to overwrite. This will make the lockfile more resilient when multiple processes are writing to it.
   ///
   /// If you dont write the bytes received by this function to the lockfile, it will result in undefined behaviour
   // TODO: Resetting `has_content_change` probably has some funny side effects; investigate
@@ -519,12 +461,27 @@ impl Lockfile {
     Some(json_string.into_bytes())
   }
 
-  pub fn remote(&self) -> &BTreeMap<String, String> {
-    &self.content.remote
-  }
-
+  /// Get the lockfile content
   pub fn content(&self) -> &LockfileContent {
     &self.content
+  }
+
+  /// Get the filename of the lockfile
+  pub fn filename(&self) -> &PathBuf {
+    &self.filename
+  }
+
+  /// Returns true, if we performed operations that modified the lockfile
+  ///
+  /// Will be reset to false after the content was read with [Lockfile::resolve_write_bytes]
+  pub fn has_content_changed(&self) -> bool {
+    self.has_content_changed
+  }
+
+  /// Check if this lockfile was created with overwrite
+  // TODO: Document what exactly overwrite does
+  pub fn overwrite(&self) -> bool {
+    self.overwrite
   }
 
   /// Inserts a remote specifier into the lockfile replacing the existing package if it exists.
@@ -545,6 +502,49 @@ impl Lockfile {
         }
       }
     }
+  }
+
+  /// Removes a remote from the lockfile
+  ///
+  /// Returns the hash of the removed remote, if something was removed
+  pub fn remove_remote(&mut self, from: &str) -> Option<String> {
+    let removed_value = self.content.remote.remove(from);
+    if removed_value.is_some() {
+      self.has_content_changed = true;
+    }
+    removed_value
+  }
+
+  /// Adds a redirect to the lockfile
+  pub fn insert_redirect(&mut self, from: String, to: String) {
+    if from.starts_with("jsr:") {
+      return;
+    }
+
+    let entry = self.content.redirects.entry(from);
+    match entry {
+      Entry::Vacant(entry) => {
+        entry.insert(to);
+        self.has_content_changed = true;
+      }
+      Entry::Occupied(mut entry) => {
+        if *entry.get() != to {
+          entry.insert(to);
+          self.has_content_changed = true;
+        }
+      }
+    }
+  }
+
+  /// Removes a redirect from the lockfile
+  ///
+  /// Returns the target of the removed redirect.
+  pub fn remove_redirect(&mut self, from: &str) -> Option<String> {
+    let removed_value = self.content.redirects.remove(from);
+    if removed_value.is_some() {
+      self.has_content_changed = true;
+    }
+    removed_value
   }
 
   /// Inserts an npm package into the lockfile replacing the existing package if it exists.
@@ -603,7 +603,7 @@ impl Lockfile {
   ///
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
-  pub fn insert_package(&mut self, name: String, integrity: String) {
+  pub fn insert_jsr_package(&mut self, name: String, integrity: String) {
     let entry = self.content.jsr.entry(name);
     match entry {
       Entry::Vacant(entry) => {
@@ -639,36 +639,57 @@ impl Lockfile {
     }
   }
 
-  /// Adds a redirect to the lockfile
-  pub fn insert_redirect(&mut self, from: String, to: String) {
-    if from.starts_with("jsr:") {
+  /// Set the workspace config
+  pub fn set_workspace_config(&mut self, options: SetWorkspaceConfigOptions) {
+    let was_empty_before = self.content.is_empty();
+    let old_workspace_config = self.content.workspace.clone();
+
+    // Update the workspace
+    let config = WorkspaceConfig::new(options, &self.content.workspace);
+    self.content.workspace.update(config);
+
+    // We dont need to do the rest, if we changed nothing
+    if old_workspace_config == self.content.workspace {
       return;
     }
 
-    let entry = self.content.redirects.entry(from);
-    match entry {
-      Entry::Vacant(entry) => {
-        entry.insert(to);
-        self.has_content_changed = true;
-      }
-      Entry::Occupied(mut entry) => {
-        if *entry.get() != to {
-          entry.insert(to);
-          self.has_content_changed = true;
-        }
-      }
-    }
-  }
-
-  /// Removes a redirect from the lockfile
-  ///
-  /// Returns the target of the removed redirect.
-  pub fn remove_redirect(&mut self, from: &str) -> Option<String> {
-    let removed_value = self.content.redirects.remove(from);
-    if removed_value.is_some() {
+    // If the lockfile is empty, it's most likely not created yet and so
+    // we don't want workspace configuration being added to the lockfile to cause
+    // a lockfile to be created.
+    // So we only set has_content_changed if it wasnt empty before
+    if !was_empty_before {
+      // revert it back so this change doesn't by itself cause
+      // a lockfile to be created.
       self.has_content_changed = true;
     }
-    removed_value
+
+    let old_deps: BTreeSet<&String> =
+      old_workspace_config.get_all_dep_reqs().collect();
+    let new_deps: BTreeSet<&String> =
+      self.content.workspace.get_all_dep_reqs().collect();
+    let removed_deps: BTreeSet<&String> =
+      old_deps.difference(&new_deps).copied().collect();
+
+    if removed_deps.is_empty() {
+      return;
+    }
+
+    // Remove removed dependencies from packages and remote
+    let npm = std::mem::take(&mut self.content.npm);
+    let jsr = std::mem::take(&mut self.content.jsr);
+    let specifiers = std::mem::take(&mut self.content.specifiers);
+    let mut graph = LockfilePackageGraph::from_lockfile(
+      npm,
+      jsr,
+      specifiers,
+      old_deps.iter().map(|dep| dep.as_str()),
+    );
+    graph.remove_root_packages(removed_deps.into_iter());
+    graph.populate_packages(
+      &mut self.content.npm,
+      &mut self.content.jsr,
+      &mut self.content.specifiers,
+    );
   }
 }
 
@@ -1166,13 +1187,13 @@ mod tests {
       Lockfile::with_lockfile_content(file_path, content, false).unwrap();
 
     assert!(!lockfile.has_content_changed);
-    lockfile.insert_package("dep".to_string(), "integrity".to_string());
+    lockfile.insert_jsr_package("dep".to_string(), "integrity".to_string());
     // has changed even though it was empty
     assert!(lockfile.has_content_changed);
 
     // now try inserting the same package
     lockfile.has_content_changed = false;
-    lockfile.insert_package("dep".to_string(), "integrity".to_string());
+    lockfile.insert_jsr_package("dep".to_string(), "integrity".to_string());
     assert!(!lockfile.has_content_changed);
 
     // now with new deps
@@ -1264,7 +1285,7 @@ mod tests {
   fn should_be_changed_if_a_dep_is_removed_from_the_workspace() {
     // Setup
     let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
-    lockfile.insert_package("beta".to_string(), "checksum".to_string());
+    lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
       no_npm: false,
@@ -1297,7 +1318,7 @@ mod tests {
   fn should_be_changed_if_a_dep_is_moved_workspace_root_to_a_member_a() {
     // Setup
     let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
-    lockfile.insert_package("beta".to_string(), "checksum".to_string());
+    lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
       no_npm: false,
@@ -1333,7 +1354,7 @@ mod tests {
   fn should_be_changed_if_a_dep_is_moved_workspace_root_to_a_member_b() {
     // Setup
     let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
-    lockfile.insert_package("beta".to_string(), "checksum".to_string());
+    lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
       no_npm: false,
@@ -1369,9 +1390,9 @@ mod tests {
   fn should_preserve_workspace_on_no_npm() {
     // Setup
     let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
-    lockfile.insert_package("alpha".to_string(), "checksum".to_string());
-    lockfile.insert_package("beta".to_string(), "checksum".to_string());
-    lockfile.insert_package("gamma".to_string(), "checksum".to_string());
+    lockfile.insert_jsr_package("alpha".to_string(), "checksum".to_string());
+    lockfile.insert_jsr_package("beta".to_string(), "checksum".to_string());
+    lockfile.insert_jsr_package("gamma".to_string(), "checksum".to_string());
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
       no_npm: false,
