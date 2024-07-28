@@ -6,7 +6,7 @@
     "test:fast": "deno task test --no-check --parallel --shuffle",
     "wasmbuild": "deno run -A jsr:@deno/wasmbuild@0.17.2"
   },
-  "workspaces": [
+  "workspace": [
     "./js"
   ],
   "imports": {
