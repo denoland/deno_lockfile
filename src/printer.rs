@@ -9,7 +9,6 @@ use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
 
-// todo: investigate json escaping, which might not be necessary here
 pub fn print_v4_content(content: &LockfileContent, output: &mut String) {
   // this attempts to be heavily optimized for performance and thus hardcodes indentation
   output.push_str("{\n  \"version\": \"4\"");
@@ -156,12 +155,17 @@ fn write_npm(output: &mut String, npm: &BTreeMap<String, NpmPackageInfo>) {
     output.push('"');
     if !value.dependencies.is_empty() {
       output.push_str(",\n      \"dependencies\": [\n");
-      for (i, (key, id)) in value.dependencies.iter().enumerate() {
-        if i > 0 {
+      let mut had_previous = false;
+      for (key, id) in &value.dependencies {
+        let Some((name, version)) = extract_nv_from_id(id) else {
+          // not a big deal because this is only used for
+          continue;
+        };
+        if had_previous {
           output.push_str(",\n");
+        } else {
+          had_previous = true;
         }
-        // todo(THIS PR): don't unwrap here
-        let (name, version) = extract_nv_from_id(id).unwrap();
         output.push_str("        \"");
         if name == key {
           let has_single_version = pkg_had_multiple_versions
