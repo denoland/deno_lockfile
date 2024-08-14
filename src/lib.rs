@@ -1345,4 +1345,22 @@ mod tests {
       "Unable to read lockfile. Lockfile was empty at 'lockfile.json'."
     );
   }
+
+  #[test]
+  fn empty_version_4_not_deno_future() {
+    let content: &str = r#"{ "version": "4" }"#;
+    let file_path = PathBuf::from("lockfile.json");
+    let err = Lockfile::new(NewLockfileOptions {
+      file_path,
+      content,
+      overwrite: false,
+      is_deno_future: false,
+    })
+    .err()
+    .unwrap();
+    assert_eq!(
+      err.to_string(),
+      "Unsupported lockfile version '4'. Try upgrading Deno or recreating the lockfile at 'lockfile.json'."
+    );
+  }
 }
