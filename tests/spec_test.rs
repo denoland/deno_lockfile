@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::panic::AssertUnwindSafe;
 
 use deno_lockfile::Lockfile;
+use deno_lockfile::NewLockfileOptions;
 use deno_lockfile::PackagesContent;
 use deno_lockfile::SetWorkspaceConfigOptions;
 use deno_lockfile::WorkspaceConfig;
@@ -102,11 +103,12 @@ fn config_changes_test(test: &CollectedTest) {
 
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   let mut spec = ConfigChangeSpec::parse(&test.read_to_string().unwrap());
-  let mut lockfile = Lockfile::with_lockfile_content(
-    test.path.with_extension("lock"),
-    &spec.original_text.text,
-    false,
-  )
+  let mut lockfile = Lockfile::new(NewLockfileOptions {
+    file_path: test.path.with_extension("lock"),
+    content: &spec.original_text.text,
+    overwrite: false,
+    is_deno_future: spec.original_text.text.contains("\"version\": \"4\""),
+  })
   .unwrap();
   for change_and_output in &mut spec.change_and_outputs {
     // setting the new workspace config should change the has_content_changed flag
@@ -164,14 +166,13 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
   assert_eq!(sections.len(), 2);
   let original_section = sections.remove(0);
   let mut expected_section = sections.remove(0);
-  let mut lockfile = Lockfile::with_lockfile_content(
-    test.path.with_extension("lock"),
-    &original_section.text,
-    false,
-  )
+  let lockfile = Lockfile::new(NewLockfileOptions {
+    file_path: test.path.with_extension("lock"),
+    content: &original_section.text,
+    overwrite: false,
+    is_deno_future: true,
+  })
   .unwrap();
-  let original_lockfile = lockfile.clone();
-  lockfile.force_v4();
   let actual_text = lockfile.as_json_string();
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   if is_update {
@@ -183,36 +184,23 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
     .unwrap();
     TestResult::Passed
   } else {
-    let mut sub_tests = Vec::new();
+    let mut sub_tests = Vec::with_capacity(2);
     sub_tests.push(SubTestResult {
       name: "v4_upgrade".to_string(),
       result: TestResult::from_maybe_panic(|| {
         assert_eq!(actual_text.trim(), expected_section.text.trim());
       }),
     });
-    // if this was v3, ensure that an emit of the original v3 lockfile
-    // still emits the same way
-    if original_section.text.contains("\"version\": \"3\"") {
-      sub_tests.push(SubTestResult {
-        name: "v3_emit".to_string(),
-        result: TestResult::from_maybe_panic(|| {
-          assert_eq!(
-            original_lockfile.as_json_string().trim(),
-            original_section.text.trim(),
-            "original emit failed"
-          );
-        }),
-      })
-    }
     // now try parsing the lockfile v4 output, then reserialize it and ensure it matches
     sub_tests.push(SubTestResult {
       name: "v4_reparse_and_emit".to_string(),
       result: TestResult::from_maybe_panic(|| {
-        let lockfile: Lockfile = Lockfile::with_lockfile_content(
-          test.path.with_extension("lock"),
-          &actual_text,
-          false,
-        )
+        let lockfile: Lockfile = Lockfile::new(NewLockfileOptions {
+          file_path: test.path.with_extension("lock"),
+          content: &actual_text,
+          overwrite: false,
+          is_deno_future: true,
+        })
         .unwrap();
         assert_eq!(lockfile.as_json_string().trim(), actual_text.trim());
       }),

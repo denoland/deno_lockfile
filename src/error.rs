@@ -6,7 +6,7 @@ use crate::transforms::TransformError;
 
 #[derive(Debug)]
 pub struct LockfileError {
-  pub filename: String,
+  pub file_path: String,
   pub reason: LockfileErrorReason,
 }
 
@@ -15,11 +15,11 @@ impl std::error::Error for LockfileError {}
 impl std::fmt::Display for LockfileError {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     match &self.reason {
-      LockfileErrorReason::Empty => write!(f, "Unable to read lockfile. Lockfile was empty at '{}'.", self.filename),
-      LockfileErrorReason::ParseError(e) => write!(f, "Unable to parse contents of lockfile '{}': {:#}.", self.filename, e),
-      LockfileErrorReason::DeserializationError(e) => write!(f, "Unable to deserialize lockfile '{}': {:#}.", self.filename, e),
-      LockfileErrorReason::UnsupportedVersion { version } => write!(f, "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile at '{}'.", version, self.filename),
-      LockfileErrorReason::TransformError(e) => write!(f, "Unable to upgrade old lockfile '{}': {:#}.", self.filename, e),
+      LockfileErrorReason::Empty => write!(f, "Unable to read lockfile. Lockfile was empty at '{}'.", self.file_path),
+      LockfileErrorReason::ParseError(e) => write!(f, "Unable to parse contents of lockfile '{}': {:#}.", self.file_path, e),
+      LockfileErrorReason::DeserializationError(e) => write!(f, "Unable to deserialize lockfile '{}': {:#}.", self.file_path, e),
+      LockfileErrorReason::UnsupportedVersion { version } => write!(f, "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile at '{}'.", version, self.file_path),
+      LockfileErrorReason::TransformError(e) => write!(f, "Unable to upgrade old lockfile '{}': {:#}.", self.file_path, e),
     }
   }
 }
