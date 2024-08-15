@@ -104,9 +104,9 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
       .collect()
   }
 
-  fn handle_npm<'a>(
-    npm: &'a BTreeMap<String, NpmPackageInfo>,
-  ) -> BTreeMap<&'a str, SerializedNpmPkg> {
+  fn handle_npm(
+    npm: &BTreeMap<String, NpmPackageInfo>,
+  ) -> BTreeMap<&str, SerializedNpmPkg> {
     fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
       if value.is_empty() {
         return None;
