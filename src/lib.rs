@@ -529,8 +529,9 @@ impl Lockfile {
 
   pub fn as_json_string(&self) -> String {
     if self.content.version == "4" {
-      let mut text = String::new();
-      printer::print_v4_content(&self.content, &mut text);
+      let mut text = printer::print_v4_content(&self.content);
+      text.reserve(1);
+      text.push('\n');
       text
     } else {
       let mut json_string =
