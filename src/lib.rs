@@ -193,7 +193,7 @@ impl WorkspaceConfigContent {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct LockfileContent {
   pub(crate) version: String,
@@ -216,6 +216,24 @@ pub struct LockfileContent {
 
 impl LockfileContent {
   pub fn from_json(
+    json: serde_json::Value,
+  ) -> Result<Self, DeserializationError> {
+    if json.get("version").and_then(|v| v.as_str()) == Some("4") {
+      Self::from_version4_json(json)
+    } else {
+      Self::from_version3_json(json)
+    }
+  }
+
+  fn from_version3_json(
+    json: serde_json::Value,
+  ) -> Result<Self, DeserializationError> {
+    let content = serde_json::from_value::<LockfileContent>(json)
+      .map_err(|err| DeserializationError::FailedDeserializing("root", err))?;
+    Ok(content)
+  }
+
+  fn from_version4_json(
     json: serde_json::Value,
   ) -> Result<Self, DeserializationError> {
     fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
@@ -274,14 +292,16 @@ impl LockfileContent {
       return Ok(Self::empty_with_version("3".to_string()));
     };
 
+    let version = json
+      .remove("version")
+      .and_then(|v| match v {
+        Value::String(v) => Some(v),
+        _ => None,
+      })
+      .unwrap_or_else(|| "3".to_string());
+
     Ok(LockfileContent {
-      version: json
-        .remove("version")
-        .and_then(|v| match v {
-          Value::String(v) => Some(v),
-          _ => None,
-        })
-        .unwrap_or_else(|| "3".to_string()),
+      version,
       packages: {
         let specifiers: BTreeMap<String, String> =
           deserialize_section(&mut json, "specifiers")?;
@@ -385,7 +405,10 @@ impl LockfileContent {
                 let Some(maybe_specifier) =
                   to_resolved_specifiers.get(dep.as_str())
                 else {
-                  todo!();
+                  return Err(DeserializationError::InvalidJsrDependency {
+                    dependency: dep,
+                    package: key.to_string(),
+                  });
                 };
                 dependencies.insert(
                   maybe_specifier.map(|s| s.to_string()).unwrap_or(dep),
@@ -467,19 +490,34 @@ impl Lockfile {
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
       let was_version_4 = version == Some("4");
-      let value = match version {
-        Some("4") if is_deno_future => value,
-        Some("3") => transforms::transform3_to_4(value)?,
-        Some("2") => {
-          transforms::transform3_to_4(transforms::transform2_to_3(value))?
+      let value = if is_deno_future {
+        match version {
+          Some("4") => value,
+          Some("3") => transforms::transform3_to_4(value)?,
+          Some("2") => {
+            transforms::transform3_to_4(transforms::transform2_to_3(value))?
+          }
+          None => transforms::transform3_to_4(transforms::transform2_to_3(
+            transforms::transform1_to_2(value),
+          ))?,
+          Some(version) => {
+            return Err(LockfileErrorReason::UnsupportedVersion {
+              version: version.to_string(),
+            });
+          }
         }
-        None => transforms::transform3_to_4(transforms::transform2_to_3(
-          transforms::transform1_to_2(value),
-        ))?,
-        Some(version) => {
-          return Err(LockfileErrorReason::UnsupportedVersion {
-            version: version.to_string(),
-          });
+      } else {
+        match version {
+          Some("3") => value,
+          Some("2") => transforms::transform2_to_3(value),
+          None => {
+            transforms::transform2_to_3(transforms::transform1_to_2(value))
+          }
+          Some(version) => {
+            return Err(LockfileErrorReason::UnsupportedVersion {
+              version: version.to_string(),
+            });
+          }
         }
       };
       let content = LockfileContent::from_json(value.into())
