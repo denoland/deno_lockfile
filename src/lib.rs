@@ -193,47 +193,18 @@ impl WorkspaceConfigContent {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Hash)]
 pub struct LockfileContent {
   pub(crate) version: String,
-  // order these based on auditability
-  #[serde(skip_serializing_if = "PackagesContent::is_empty")]
-  #[serde(default)]
   pub packages: PackagesContent,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  #[serde(default)]
   pub redirects: BTreeMap<String, String>,
-  // todo(dsherret): in the next lockfile version we should skip
-  // serializing this when it's empty
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
-  #[serde(default)]
   pub(crate) remote: BTreeMap<String, String>,
-  #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
-  #[serde(default)]
   pub(crate) workspace: WorkspaceConfigContent,
 }
 
 impl LockfileContent {
   pub fn from_json(
-    json: serde_json::Value,
-  ) -> Result<Self, DeserializationError> {
-    if json.get("version").and_then(|v| v.as_str()) == Some("4") {
-      Self::from_version4_json(json)
-    } else {
-      Self::from_version3_json(json)
-    }
-  }
-
-  fn from_version3_json(
-    json: serde_json::Value,
-  ) -> Result<Self, DeserializationError> {
-    let content = serde_json::from_value::<LockfileContent>(json)
-      .map_err(|err| DeserializationError::FailedDeserializing("root", err))?;
-    Ok(content)
-  }
-
-  fn from_version4_json(
     json: serde_json::Value,
   ) -> Result<Self, DeserializationError> {
     fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
@@ -289,7 +260,7 @@ impl LockfileContent {
     use serde_json::Value;
 
     let Value::Object(mut json) = json else {
-      return Ok(Self::empty_with_version("3".to_string()));
+      return Ok(Self::empty_with_version("4".to_string()));
     };
 
     let version = json
@@ -298,7 +269,7 @@ impl LockfileContent {
         Value::String(v) => Some(v),
         _ => None,
       })
-      .unwrap_or_else(|| "3".to_string());
+      .unwrap_or_else(|| "4".to_string());
 
     Ok(LockfileContent {
       version,
@@ -459,7 +430,6 @@ pub struct NewLockfileOptions<'a> {
   pub file_path: PathBuf,
   pub content: &'a str,
   pub overwrite: bool,
-  pub is_deno_future: bool,
 }
 
 #[derive(Debug, Clone, Hash)]
@@ -475,7 +445,7 @@ impl Lockfile {
     Lockfile {
       overwrite,
       has_content_changed: false,
-      content: LockfileContent::empty_with_version("3".to_string()),
+      content: LockfileContent::empty_with_version("4".to_string()),
       filename,
     }
   }
@@ -483,47 +453,30 @@ impl Lockfile {
   pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, LockfileError> {
     fn load_content(
       content: &str,
-      is_deno_future: bool,
-    ) -> Result<(bool, LockfileContent), LockfileErrorReason> {
+    ) -> Result<LockfileContent, LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
-      let was_version_4 = version == Some("4");
-      let value = if is_deno_future {
-        match version {
-          Some("4") => value,
-          Some("3") => transforms::transform3_to_4(value)?,
-          Some("2") => {
-            transforms::transform3_to_4(transforms::transform2_to_3(value))?
-          }
-          None => transforms::transform3_to_4(transforms::transform2_to_3(
-            transforms::transform1_to_2(value),
-          ))?,
-          Some(version) => {
-            return Err(LockfileErrorReason::UnsupportedVersion {
-              version: version.to_string(),
-            });
-          }
+      let value = match version {
+        Some("4") => value,
+        Some("3") => transforms::transform3_to_4(value)?,
+        Some("2") => {
+          transforms::transform3_to_4(transforms::transform2_to_3(value))?
         }
-      } else {
-        match version {
-          Some("3") => value,
-          Some("2") => transforms::transform2_to_3(value),
-          None => {
-            transforms::transform2_to_3(transforms::transform1_to_2(value))
-          }
-          Some(version) => {
-            return Err(LockfileErrorReason::UnsupportedVersion {
-              version: version.to_string(),
-            });
-          }
+        None => transforms::transform3_to_4(transforms::transform2_to_3(
+          transforms::transform1_to_2(value),
+        ))?,
+        Some(version) => {
+          return Err(LockfileErrorReason::UnsupportedVersion {
+            version: version.to_string(),
+          });
         }
       };
       let content = LockfileContent::from_json(value.into())
         .map_err(LockfileErrorReason::DeserializationError)?;
 
-      Ok((!was_version_4 && is_deno_future, content))
+      Ok(content)
     }
 
     // Writing a lock file always uses the new format.
@@ -532,11 +485,7 @@ impl Lockfile {
         overwrite: opts.overwrite,
         filename: opts.file_path,
         has_content_changed: false,
-        content: LockfileContent::empty_with_version(if opts.is_deno_future {
-          "4".to_string()
-        } else {
-          "3".to_string()
-        }),
+        content: LockfileContent::empty_with_version("4".to_string()),
       });
     }
 
@@ -547,36 +496,24 @@ impl Lockfile {
       });
     }
 
-    let (has_content_changed, mut content) =
-      load_content(opts.content, opts.is_deno_future).map_err(|reason| {
-        LockfileError {
-          file_path: opts.file_path.display().to_string(),
-          reason,
-        }
+    let content =
+      load_content(opts.content).map_err(|reason| LockfileError {
+        file_path: opts.file_path.display().to_string(),
+        reason,
       })?;
-    if !opts.is_deno_future {
-      content.version = "3".to_string();
-    }
     Ok(Lockfile {
       overwrite: opts.overwrite,
-      has_content_changed,
+      has_content_changed: false,
       content,
       filename: opts.file_path,
     })
   }
 
   pub fn as_json_string(&self) -> String {
-    if self.content.version == "4" {
-      let mut text = printer::print_v4_content(&self.content);
-      text.reserve(1);
-      text.push('\n');
-      text
-    } else {
-      let mut json_string =
-        serde_json::to_string_pretty(&self.content).unwrap();
-      json_string.push('\n'); // trailing newline in file
-      json_string
-    }
+    let mut text = printer::print_v4_content(&self.content);
+    text.reserve(1);
+    text.push('\n');
+    text
   }
 
   pub fn set_workspace_config(
@@ -914,18 +851,15 @@ mod tests {
 
   const LOCKFILE_JSON: &str = r#"
 {
-  "version": "3",
-  "packages": {
-    "specifiers": {},
-    "npm": {
-      "nanoid@3.3.4": {
-        "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
-        "dependencies": {}
-      },
-      "picocolors@1.0.0": {
-        "integrity": "sha512-foobar",
-        "dependencies": {}
-      }
+  "version": "4",
+  "npm": {
+    "nanoid@3.3.4": {
+      "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
+      "dependencies": []
+    },
+    "picocolors@1.0.0": {
+      "integrity": "sha512-foobar",
+      "dependencies": []
     }
   },
   "remote": {
@@ -941,7 +875,6 @@ mod tests {
       file_path,
       content: LOCKFILE_JSON,
       overwrite,
-      is_deno_future: false,
     })
   }
 
@@ -954,7 +887,6 @@ mod tests {
         file_path,
         content: "{ \"version\": \"2000\" }",
         overwrite: false,
-        is_deno_future: false,
         }
       )
       .err()
@@ -985,7 +917,6 @@ mod tests {
       file_path,
       content: LOCKFILE_JSON,
       overwrite: false,
-      is_deno_future: false,
     })
     .unwrap();
 
@@ -1156,15 +1087,13 @@ mod tests {
     let mut lockfile = Lockfile::new(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
-  "version": "3",
+  "version": "4",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
-  },
-  "remote": {}
+  }
 }"#,
 
       overwrite: false,
-      is_deno_future: false,
     })
     .unwrap();
     lockfile.content.redirects.insert(
@@ -1174,12 +1103,11 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "3",
+  "version": "4",
   "redirects": {
     "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
-  },
-  "remote": {}
+  }
 }
 "#,
     );
@@ -1190,14 +1118,12 @@ mod tests {
     let mut lockfile = Lockfile::new(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
-  "version": "3",
+  "version": "4",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
-  },
-  "remote": {}
+  }
 }"#,
       overwrite: false,
-      is_deno_future: false,
     })
     .unwrap();
     lockfile.insert_redirect(
@@ -1217,12 +1143,11 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "3",
+  "version": "4",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.1/mod.ts",
     "https://deno.land/x/std/other.ts": "https://deno.land/std@0.190.1/other.ts"
-  },
-  "remote": {}
+  }
 }
 "#,
     );
@@ -1233,16 +1158,12 @@ mod tests {
     let mut lockfile = Lockfile::new(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:path": "jsr:@std/path@0.75.0"
-    }
-  },
-  "remote": {}
+  "version": "4",
+  "specifiers": {
+    "jsr:path": "jsr:@std/path@0.75.0"
+  }
 }"#,
       overwrite: false,
-      is_deno_future: false,
     })
     .unwrap();
     lockfile.insert_package_specifier(
@@ -1262,14 +1183,11 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "3",
-  "packages": {
-    "specifiers": {
-      "jsr:@foo/bar@^2": "jsr:@foo/bar@2.1.2",
-      "jsr:path": "jsr:@std/path@0.75.1"
-    }
-  },
-  "remote": {}
+  "version": "4",
+  "specifiers": {
+    "jsr:@foo/bar@^2": "jsr:@foo/bar@2.1.2",
+    "jsr:path": "jsr:@std/path@0.75.1"
+  }
 }
 "#,
     );
@@ -1286,10 +1204,9 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      is_deno_future: false,
     })
     .unwrap();
-    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.remote.len(), 2);
   }
 
@@ -1322,10 +1239,9 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      is_deno_future: false,
     })
     .unwrap();
-    assert_eq!(lockfile.content.version, "3");
+    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.packages.npm.len(), 2);
     assert_eq!(
       lockfile.content.packages.specifiers,
@@ -1348,7 +1264,6 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      is_deno_future: false,
     })
     .unwrap();
 
@@ -1375,31 +1290,12 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      is_deno_future: false,
     })
     .err()
     .unwrap();
     assert_eq!(
       err.to_string(),
       "Unable to read lockfile. Lockfile was empty at 'lockfile.json'."
-    );
-  }
-
-  #[test]
-  fn empty_version_4_not_deno_future() {
-    let content: &str = r#"{ "version": "4" }"#;
-    let file_path = PathBuf::from("lockfile.json");
-    let err = Lockfile::new(NewLockfileOptions {
-      file_path,
-      content,
-      overwrite: false,
-      is_deno_future: false,
-    })
-    .err()
-    .unwrap();
-    assert_eq!(
-      err.to_string(),
-      "Unsupported lockfile version '4'. Try upgrading Deno or recreating the lockfile at 'lockfile.json'."
     );
   }
 }
