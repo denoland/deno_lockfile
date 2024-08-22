@@ -107,7 +107,6 @@ fn config_changes_test(test: &CollectedTest) {
     file_path: test.path.with_extension("lock"),
     content: &spec.original_text.text,
     overwrite: false,
-    is_deno_future: spec.original_text.text.contains("\"version\": \"4\""),
   })
   .unwrap();
   for change_and_output in &mut spec.change_and_outputs {
@@ -170,7 +169,6 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
     file_path: test.path.with_extension("lock"),
     content: &original_section.text,
     overwrite: false,
-    is_deno_future: true,
   })
   .unwrap();
   let actual_text = lockfile.as_json_string();
@@ -199,7 +197,6 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
           file_path: test.path.with_extension("lock"),
           content: &actual_text,
           overwrite: false,
-          is_deno_future: true,
         })
         .unwrap();
         assert_eq!(lockfile.as_json_string().trim(), actual_text.trim());

@@ -51,8 +51,7 @@
 
 # will remove all dependencies because preact-render-to-string had preact@10.5.15 as a peer dep
 {
-  "version": "3",
-  "remote": {},
+  "version": "4",
   "workspace": {
     "dependencies": [
       "npm:preact-render-to-string@6.2"

@@ -42,6 +42,5 @@
 
 # output
 {
-  "version": "3",
-  "remote": {}
+  "version": "4"
 }
