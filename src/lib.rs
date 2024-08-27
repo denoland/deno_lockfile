@@ -1,5 +1,8 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
+
 mod error;
 mod graphs;
 
@@ -12,7 +15,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use deno_semver::jsr::JsrDepPackageReq;
-use deno_semver::package::PackageReq;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -51,7 +53,7 @@ pub struct WorkspaceConfig {
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceMemberConfig {
   pub dependencies: HashSet<JsrDepPackageReq>,
-  pub package_json_deps: HashSet<PackageReq>,
+  pub package_json_deps: HashSet<JsrDepPackageReq>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,7 +127,7 @@ impl PackagesContent {
 
 #[derive(Debug, Default, Clone, Deserialize)]
 pub(crate) struct LockfilePackageJsonContent {
-  pub dependencies: HashSet<PackageReq>,
+  pub dependencies: HashSet<JsrDepPackageReq>,
 }
 
 impl LockfilePackageJsonContent {
@@ -148,13 +150,12 @@ impl WorkspaceMemberConfigContent {
     self.dependencies.is_empty() && self.package_json.is_empty()
   }
 
-  pub fn dep_reqs(&self) -> impl Iterator<Item = Cow<JsrDepPackageReq>> {
+  pub fn dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
     self
       .package_json
       .dependencies
       .iter()
-      .map(|req| Cow::Owned(JsrDepPackageReq::npm(req.clone())))
-      .chain(self.dependencies.iter().map(Cow::Borrowed))
+      .chain(self.dependencies.iter())
   }
 }
 
@@ -172,7 +173,7 @@ impl WorkspaceConfigContent {
     self.root.is_empty() && self.members.is_empty()
   }
 
-  fn get_all_dep_reqs(&self) -> impl Iterator<Item = Cow<JsrDepPackageReq>> {
+  fn get_all_dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
     self
       .root
       .dep_reqs()
@@ -506,8 +507,7 @@ impl Lockfile {
           new.package_json_deps,
         );
 
-        removed_deps
-          .extend(old_package_json_deps.into_iter().map(JsrDepPackageReq::npm));
+        removed_deps.extend(old_package_json_deps);
 
         *has_content_changed = true;
       }
@@ -576,7 +576,7 @@ impl Lockfile {
       .content
       .workspace
       .get_all_dep_reqs()
-      .map(|d| d.into_owned())
+      .cloned()
       .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
 
@@ -614,14 +614,14 @@ impl Lockfile {
 
     for member in unhandled_members {
       if let Some(member) = self.content.workspace.members.remove(&member) {
-        removed_deps.extend(member.dep_reqs().map(|r| r.into_owned()));
+        removed_deps.extend(member.dep_reqs().cloned());
         self.has_content_changed = true;
       }
     }
 
     // update the removed deps to keep what's still found in the workspace
     for dep in self.content.workspace.get_all_dep_reqs() {
-      removed_deps.remove(&dep);
+      removed_deps.remove(dep);
     }
 
     if !removed_deps.is_empty() {

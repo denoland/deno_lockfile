@@ -11,7 +11,6 @@ use deno_lockfile::SetWorkspaceConfigOptions;
 use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
 use deno_semver::jsr::JsrDepPackageReq;
-use deno_semver::package::PackageReq;
 use file_test_runner::collect_and_run_tests;
 use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 use file_test_runner::collection::CollectOptions;
@@ -57,7 +56,7 @@ fn config_changes_test(test: &CollectedTest) {
   #[serde(rename_all = "camelCase")]
   struct LockfilePackageJsonContent {
     #[serde(default)]
-    dependencies: BTreeSet<PackageReq>,
+    dependencies: BTreeSet<JsrDepPackageReq>,
   }
 
   #[derive(Debug, Default, Clone, Deserialize, Hash)]

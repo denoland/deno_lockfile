@@ -27,7 +27,6 @@ struct LockfileNpmPackageId(String);
 impl LockfileNpmPackageId {
   pub fn parts(&self) -> impl Iterator<Item = &str> {
     let package_id = &self.0;
-    let package_id = package_id.strip_prefix("npm:").unwrap_or(package_id);
     package_id.split('_').filter(|s| !s.is_empty())
   }
 }

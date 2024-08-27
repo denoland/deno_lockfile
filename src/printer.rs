@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use deno_semver::jsr::JsrDepPackageReq;
-use deno_semver::package::PackageReq;
 use serde::Serialize;
 
 use crate::JsrPackageInfo;
@@ -34,7 +33,7 @@ struct SerializedNpmPkg<'a> {
 struct SerializedLockfilePackageJsonContent<'a> {
   #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  pub dependencies: Vec<&'a PackageReq>,
+  pub dependencies: Vec<&'a JsrDepPackageReq>,
 }
 
 impl<'a> SerializedLockfilePackageJsonContent<'a> {
@@ -129,19 +128,15 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
               let mut dependencies = value
                 .dependencies
                 .iter()
-                .filter_map(|dep| {
+                .map(|dep| {
                   let has_single_specifier = pkg_had_multiple_specifiers
                     .get(dep.req.name.as_str())
                     .map(|had_multiple| !had_multiple)
                     .unwrap_or(false);
                   if has_single_specifier {
-                    Some(format!(
-                      "{}{}",
-                      dep.kind.scheme_with_colon(),
-                      dep.req.name
-                    ))
+                    format!("{}{}", dep.kind.scheme_with_colon(), dep.req.name)
                   } else {
-                    Some(dep.to_string())
+                    dep.to_string()
                   }
                 })
                 .collect::<Vec<_>>();

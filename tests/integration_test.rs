@@ -1,7 +1,5 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
