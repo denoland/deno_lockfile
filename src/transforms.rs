@@ -163,6 +163,18 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
       json.insert(jsr_key, jsr.into());
     }
 
+    if let Some(Value::Object(specifiers)) = packages.get_mut("specifiers") {
+      for value in specifiers.values_mut() {
+        let Value::String(value) = value else {
+          continue;
+        };
+        let Some((_, Some(id_stripped))) = split_pkg_req(value) else {
+          continue;
+        };
+        *value = id_stripped.to_string();
+      }
+    }
+
     // flatten packages into root
     for (key, value) in packages {
       json.insert(key, value);
@@ -301,7 +313,7 @@ mod test {
     assert_eq!(result, serde_json::from_value(json!({
       "version": "4",
       "specifiers": {
-        "npm:package-a": "npm:package-a@3.3.4",
+        "npm:package-a": "3.3.4",
       },
       "npm": {
         "package-a@3.3.4": {

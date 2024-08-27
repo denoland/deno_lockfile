@@ -342,22 +342,27 @@ impl LockfileContent {
           if !raw_jsr.is_empty() {
             // collect the specifier information
             let mut to_resolved_specifiers: HashMap<
-              Cow<str>,
-              Option<&JsrDepPackageReq>,
+              Cow<JsrDepPackageReq>,
+              &JsrDepPackageReq,
             > = HashMap::with_capacity(specifiers.len() * 2);
-            // first insert the specifiers that should be left alone
+            // first insert the specifiers with the version reqs
             for dep in specifiers.keys() {
-              to_resolved_specifiers.insert(dep.to_string().into(), None);
+              to_resolved_specifiers.insert(Cow::Borrowed(dep), dep);
             }
-            // then insert the mapping specifiers
+            // then insert the specifiers without version reqs
             for dep in specifiers.keys() {
+              let Ok(dep_no_version_req) = JsrDepPackageReq::from_str(
+                &format!("{}{}", dep.kind.scheme_with_colon(), dep.req.name),
+              ) else {
+                continue; // should never happen
+              };
               let entry =
-                to_resolved_specifiers.entry(Cow::Borrowed(&dep.req.name));
+                to_resolved_specifiers.entry(Cow::Owned(dep_no_version_req));
               // if an entry is occupied that means there's multiple specifiers
               // for the same name, such as one without a req, so ignore inserting
               // here
               if let HashMapEntry::Vacant(entry) = entry {
-                entry.insert(Some(dep));
+                entry.insert(dep);
               }
             }
 
@@ -366,22 +371,18 @@ impl LockfileContent {
               let mut dependencies =
                 HashSet::with_capacity(value.dependencies.len());
               for dep in value.dependencies {
-                let Some(maybe_specifier) =
-                  to_resolved_specifiers.get(dep.as_str())
+                let raw_dep = dep;
+                let Ok(dep) = JsrDepPackageReq::from_str(&raw_dep) else {
+                  continue; // should never happen
+                };
+                let Some(resolved_dep) = to_resolved_specifiers.get(&dep)
                 else {
                   return Err(DeserializationError::InvalidJsrDependency {
-                    dependency: dep,
+                    dependency: raw_dep,
                     package: key,
                   });
                 };
-                let raw_dep = &dep;
-                let Some(req) = maybe_specifier else {
-                  return Err(DeserializationError::InvalidJsrDependency {
-                    package: key,
-                    dependency: raw_dep.to_string(),
-                  });
-                };
-                dependencies.insert((*req).clone());
+                dependencies.insert((*resolved_dep).clone());
               }
               jsr.insert(
                 key,

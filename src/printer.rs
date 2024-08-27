@@ -19,7 +19,7 @@ use crate::WorkspaceMemberConfigContent;
 struct SerializedJsrPkg<'a> {
   integrity: &'a str,
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  dependencies: Vec<Cow<'a, str>>,
+  dependencies: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -83,7 +83,7 @@ struct LockfileV4<'a> {
   // order these based on auditability
   version: &'static str,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  specifiers: BTreeMap<&'a JsrDepPackageReq, &'a String>,
+  specifiers: BTreeMap<String, &'a String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   jsr: BTreeMap<&'a str, SerializedJsrPkg<'a>>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -135,9 +135,13 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
                     .map(|had_multiple| !had_multiple)
                     .unwrap_or(false);
                   if has_single_specifier {
-                    Some(Cow::Borrowed(dep.req.name.as_str()))
+                    Some(format!(
+                      "{}{}",
+                      dep.kind.scheme_with_colon(),
+                      dep.req.name
+                    ))
                   } else {
-                    Some(Cow::Owned(dep.to_string()))
+                    Some(dep.to_string())
                   }
                 })
                 .collect::<Vec<_>>();
@@ -245,7 +249,8 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   // insert sorted
   let mut specifiers = BTreeMap::new();
   for (key, value) in &content.packages.specifiers {
-    specifiers.insert(key, value);
+    // insert a string to ensure proper sorting
+    specifiers.insert(key.to_string(), value);
   }
 
   let lockfile = LockfileV4 {
