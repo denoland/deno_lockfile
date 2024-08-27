@@ -61,7 +61,7 @@
     "members": {
       "package_a": {
         "dependencies": [
-          "jsr:@dsherret/dax"
+          "jsr:@dsherret/dax@*"
         ]
       }
     }
@@ -102,7 +102,7 @@
     "members": {
       "package_b": {
         "dependencies": [
-          "jsr:@dsherret/dax"
+          "jsr:@dsherret/dax@*"
         ]
       }
     }

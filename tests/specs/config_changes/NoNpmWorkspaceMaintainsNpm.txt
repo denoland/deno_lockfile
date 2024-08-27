@@ -389,11 +389,11 @@
     "members": {
       "package_a": {
         "dependencies": [
-          "jsr:@scope/package_a"
+          "jsr:@scope/package_a@*"
         ],
         "packageJson": {
           "dependencies": [
-            "npm:ts-morph"
+            "npm:ts-morph@*"
           ]
         }
       }

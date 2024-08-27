@@ -243,10 +243,7 @@ impl LockfileContent {
         let mut specifiers =
           HashMap::with_capacity(deserialized_specifiers.len());
         for (key, value) in deserialized_specifiers {
-          let dep = JsrDepPackageReq::from_str(&key).map_err(|_err| {
-            // todo(dsherret): surface internal error here
-            DeserializationError::InvalidPackageSpecifier(key.to_string())
-          })?;
+          let dep = JsrDepPackageReq::from_str(&key)?;
           specifiers.insert(dep, value);
         }
 
@@ -458,14 +455,14 @@ impl Lockfile {
     if opts.content.trim().is_empty() {
       return Err(Box::new(LockfileError {
         file_path: opts.file_path.display().to_string(),
-        reason: LockfileErrorReason::Empty,
+        source: LockfileErrorReason::Empty,
       }));
     }
 
     let content =
       load_content(opts.content).map_err(|reason| LockfileError {
         file_path: opts.file_path.display().to_string(),
-        reason,
+        source: reason,
       })?;
     Ok(Lockfile {
       overwrite: opts.overwrite,
@@ -850,18 +847,18 @@ mod tests {
   #[test]
   fn future_version_unsupported() {
     let file_path = PathBuf::from("lockfile.json");
-    assert_eq!(
-      Lockfile::new(
-        NewLockfileOptions {
-        file_path,
-        content: "{ \"version\": \"2000\" }",
-        overwrite: false,
-        }
-      )
-      .err()
-      .unwrap().to_string(),
-      "Unsupported lockfile version '2000'. Try upgrading Deno or recreating the lockfile at 'lockfile.json'.".to_string()
-    );
+    let err = Lockfile::new(NewLockfileOptions {
+      file_path,
+      content: "{ \"version\": \"2000\" }",
+      overwrite: false,
+    })
+    .unwrap_err();
+    match err.source {
+      LockfileErrorReason::UnsupportedVersion { version } => {
+        assert_eq!(version, "2000")
+      }
+      _ => unreachable!(),
+    }
   }
 
   #[test]
@@ -1283,9 +1280,6 @@ mod tests {
     })
     .err()
     .unwrap();
-    assert_eq!(
-      err.to_string(),
-      "Unable to read lockfile. Lockfile was empty at 'lockfile.json'."
-    );
+    assert!(matches!(err.source, LockfileErrorReason::Empty));
   }
 }

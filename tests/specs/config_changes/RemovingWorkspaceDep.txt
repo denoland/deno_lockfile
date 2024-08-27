@@ -252,7 +252,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@dsherret/dax"
+      "jsr:@dsherret/dax@*"
     ],
     "members": {
       "package_a": {}

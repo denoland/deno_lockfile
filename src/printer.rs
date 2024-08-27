@@ -29,12 +29,33 @@ struct SerializedNpmPkg<'a> {
   dependencies: Vec<Cow<'a, str>>,
 }
 
+#[derive(Debug, PartialOrd, Ord, PartialEq, Eq)]
+struct JsrDepPackageReqSerializer<'a>(&'a JsrDepPackageReq);
+
+impl<'a> Serialize for JsrDepPackageReqSerializer<'a> {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: serde::Serializer,
+  {
+    serializer.serialize_str(&jsr_dep_pkg_req_to_string(self.0))
+  }
+}
+
+fn jsr_dep_pkg_req_to_string(dep_req: &JsrDepPackageReq) -> String {
+  format!(
+    "{}{}@{}",
+    dep_req.kind.scheme_with_colon(),
+    dep_req.req.name,
+    dep_req.req.version_req.inner()
+  )
+}
+
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SerializedLockfilePackageJsonContent<'a> {
   #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  pub dependencies: Vec<&'a JsrDepPackageReq>,
+  pub dependencies: Vec<JsrDepPackageReqSerializer<'a>>,
 }
 
 impl<'a> SerializedLockfilePackageJsonContent<'a> {
@@ -48,7 +69,7 @@ impl<'a> SerializedLockfilePackageJsonContent<'a> {
 struct SerializedWorkspaceMemberConfigContent<'a> {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[serde(default)]
-  pub dependencies: Vec<&'a JsrDepPackageReq>,
+  pub dependencies: Vec<JsrDepPackageReqSerializer<'a>>,
   #[serde(
     skip_serializing_if = "SerializedLockfilePackageJsonContent::is_empty"
   )]
@@ -137,7 +158,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
                   if has_single_specifier {
                     format!("{}{}", dep.kind.scheme_with_colon(), dep.req.name)
                   } else {
-                    dep.to_string()
+                    jsr_dep_pkg_req_to_string(dep)
                   }
                 })
                 .collect::<Vec<_>>();
@@ -211,7 +232,11 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_pkg_json_content(
     content: &LockfilePackageJsonContent,
   ) -> SerializedLockfilePackageJsonContent {
-    let mut dependencies = content.dependencies.iter().collect::<Vec<_>>();
+    let mut dependencies = content
+      .dependencies
+      .iter()
+      .map(JsrDepPackageReqSerializer)
+      .collect::<Vec<_>>();
     dependencies.sort();
     SerializedLockfilePackageJsonContent { dependencies }
   }
@@ -221,7 +246,11 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   ) -> SerializedWorkspaceMemberConfigContent {
     SerializedWorkspaceMemberConfigContent {
       dependencies: {
-        let mut member = member.dependencies.iter().collect::<Vec<_>>();
+        let mut member = member
+          .dependencies
+          .iter()
+          .map(JsrDepPackageReqSerializer)
+          .collect::<Vec<_>>();
         member.sort();
         member
       },

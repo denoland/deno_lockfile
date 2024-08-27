@@ -374,7 +374,7 @@
         "jsr:@deno/cache-dir",
         "jsr:@std/fmt",
         "jsr:@std/fs",
-        "jsr:@std/path@^0.218.2",
+        "jsr:@std/path@~0.218.2",
         "npm:@ts-morph/bootstrap",
         "npm:code-block-writer"
       ]
@@ -397,8 +397,8 @@
     "@std/fs@0.218.2": {
       "integrity": "dd9431453f7282e8c577cc22c9e6d036055a9a980b5549f887d6012969fabcca",
       "dependencies": [
-        "jsr:@std/assert@^0.218.2",
-        "jsr:@std/path@^0.218.2"
+        "jsr:@std/assert@~0.218.2",
+        "jsr:@std/path@~0.218.2"
       ]
     },
     "@std/io@0.218.2": {
@@ -410,13 +410,13 @@
     "@std/path@0.218.2": {
       "integrity": "b568fd923d9e53ad76d17c513e7310bda8e755a3e825e6289a0ce536404e2662",
       "dependencies": [
-        "jsr:@std/assert@^0.218.2"
+        "jsr:@std/assert@~0.218.2"
       ]
     },
     "@std/path@0.225.1": {
       "integrity": "8c3220635a73730eb51fe43de9e10b79e2724a5bb8638b9355d35ae012fd9429",
       "dependencies": [
-        "jsr:@std/assert@^0.225.2"
+        "jsr:@std/assert@~0.225.2"
       ]
     }
   },
@@ -657,8 +657,8 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@deno/dnt@^0.41.2",
-      "jsr:@std/path@^0.225.1"
+      "jsr:@deno/dnt@~0.41.2",
+      "jsr:@std/path@~0.225.1"
     ],
     "packageJson": {
       "dependencies": [

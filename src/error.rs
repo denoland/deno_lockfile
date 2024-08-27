@@ -1,37 +1,33 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
+use deno_semver::jsr::JsrDepPackageReqParseError;
 use deno_semver::package::PackageNv;
 use thiserror::Error;
 
 use crate::transforms::TransformError;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("Failed reading lockfile at '{file_path}'")]
 pub struct LockfileError {
   pub file_path: String,
-  pub reason: LockfileErrorReason,
+  #[source]
+  pub source: LockfileErrorReason,
 }
 
-impl std::error::Error for LockfileError {}
-
-impl std::fmt::Display for LockfileError {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    match &self.reason {
-      LockfileErrorReason::Empty => write!(f, "Unable to read lockfile. Lockfile was empty at '{}'.", self.file_path),
-      LockfileErrorReason::ParseError(e) => write!(f, "Unable to parse contents of lockfile '{}': {:#}.", self.file_path, e),
-      LockfileErrorReason::DeserializationError(e) => write!(f, "Unable to deserialize lockfile '{}': {:#}.", self.file_path, e),
-      LockfileErrorReason::UnsupportedVersion { version } => write!(f, "Unsupported lockfile version '{}'. Try upgrading Deno or recreating the lockfile at '{}'.", version, self.file_path),
-      LockfileErrorReason::TransformError(e) => write!(f, "Unable to upgrade old lockfile '{}': {:#}.", self.file_path, e),
-    }
-  }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum LockfileErrorReason {
+  #[error("Lockfile was empty.")]
   Empty,
+  #[error("Failed parsing. Lockfile may be corrupt.")]
   ParseError(serde_json::Error),
-  DeserializationError(DeserializationError),
+  #[error("Failed deserializing. Lockfile may be corrupt.")]
+  DeserializationError(#[source] DeserializationError),
+  #[error("Unsupported lockfile version '{version}'. Try upgrading Deno or recreating the lockfile.")]
   UnsupportedVersion { version: String },
-  TransformError(TransformError),
+  #[error(
+    "Failed upgrading lockfile to latest version. Lockfile may be corrupt."
+  )]
+  TransformError(#[source] TransformError),
 }
 
 impl From<TransformError> for LockfileErrorReason {
@@ -44,19 +40,21 @@ impl From<TransformError> for LockfileErrorReason {
 pub enum DeserializationError {
   #[error("Invalid {0} section: {1:#}")]
   FailedDeserializing(&'static str, serde_json::Error),
-  #[error("Invalid npm package '{0}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
+  #[error("Invalid npm package '{0}'")]
   InvalidNpmPackageId(String),
-  #[error("Invalid npm package dependency '{0}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
+  #[error("Invalid npm package dependency '{0}'")]
   InvalidNpmPackageDependency(String),
-  #[error("Invalid package specifier '{0}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
-  InvalidPackageSpecifier(String),
-  #[error("Invalid package specifier version '{version}' for '{specifier}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
+  #[error(transparent)]
+  InvalidPackageSpecifier(#[from] JsrDepPackageReqParseError),
+  #[error("Invalid package specifier version '{version}' for '{specifier}'")]
   InvalidPackageSpecifierVersion { specifier: String, version: String },
-  #[error("Invalid jsr dependency '{dependency}' for '{package}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
+  #[error("Invalid jsr dependency '{dependency}' for '{package}'")]
   InvalidJsrDependency {
     package: PackageNv,
     dependency: String,
   },
-  #[error("npm package '{0}' was not found and could not have its version resolved. Lockfile may be corrupt.")]
+  #[error(
+    "npm package '{0}' was not found and could not have its version resolved"
+  )]
   MissingPackage(String),
 }

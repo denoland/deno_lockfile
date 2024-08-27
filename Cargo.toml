@@ -22,3 +22,6 @@ thiserror = "1.0.40"
 [dev-dependencies]
 file_test_runner = "0.7.2"
 pretty_assertions = "1.4.0"
+
+[patch.crates-io]
+deno_semver = { path = "../deno_semver" }

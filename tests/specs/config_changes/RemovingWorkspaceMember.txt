@@ -246,7 +246,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@dsherret/dax"
+      "jsr:@dsherret/dax@*"
     ]
   }
 }

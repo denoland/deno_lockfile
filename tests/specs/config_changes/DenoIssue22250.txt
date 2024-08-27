@@ -1414,7 +1414,7 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@spotify/web-api-ts-sdk"
+      "npm:@spotify/web-api-ts-sdk@*"
     ]
   }
 }
