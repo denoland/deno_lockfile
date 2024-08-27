@@ -3,7 +3,8 @@
 mod error;
 mod graphs;
 
-use std::collections::btree_map::Entry;
+use std::collections::btree_map::Entry as BTreeMapEntry;
+use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -11,8 +12,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use deno_semver::jsr::JsrDepPackageReq;
-use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
+use deno_semver::VersionReq;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -149,7 +150,7 @@ impl LockfilePackageJsonContent {
 pub(crate) struct WorkspaceMemberConfigContent {
   #[serde(skip_serializing_if = "BTreeSet::is_empty")]
   #[serde(default)]
-  pub dependencies: BTreeSet<String>,
+  pub dependencies: HashSet<String>,
   #[serde(skip_serializing_if = "LockfilePackageJsonContent::is_empty")]
   #[serde(default)]
   pub package_json: LockfilePackageJsonContent,
@@ -282,14 +283,14 @@ impl LockfileContent {
         let mut jsr_specifiers = HashMap::with_capacity(jsr_specifiers_count);
         let mut npm_specifiers =
           HashMap::with_capacity(specifiers.len() - jsr_specifiers_count);
-        for (key, value) in specifiers {
+        for (key, value) in &specifiers {
           if let Some(key) = key.strip_prefix("jsr:") {
             // todo(dsherret): surface internal errors here
             jsr_specifiers.insert(
               PackageReq::from_str(&key).map_err(|_err| {
                 DeserializationError::InvalidPackageSpecifier(key.to_string())
               })?,
-              value,
+              value.clone(),
             );
           } else if let Some(key) = key.strip_prefix("npm:") {
             // todo(dsherret): surface internal errors here
@@ -297,7 +298,7 @@ impl LockfileContent {
               PackageReq::from_str(&key).map_err(|_err| {
                 DeserializationError::InvalidPackageSpecifier(key.to_string())
               })?,
-              value,
+              value.clone(),
             );
           } else {
             return Err(DeserializationError::InvalidPackageSpecifier(
@@ -391,7 +392,7 @@ impl LockfileContent {
                 // if an entry is occupied that means there's multiple specifiers
                 // for the same name, such as one without a req, so ignore inserting
                 // here
-                if let std::collections::hash_map::Entry::Vacant(entry) = entry
+                if let HashMapEntry::Vacant(entry) = entry
                 {
                   entry.insert(Some(specifier));
                 }
@@ -408,12 +409,32 @@ impl LockfileContent {
                 else {
                   return Err(DeserializationError::InvalidJsrDependency {
                     dependency: dep,
-                    package: key.to_string(),
+                    package: key,
                   });
                 };
-                dependencies.insert(
-                  maybe_specifier.map(|s| s.to_string()).unwrap_or(dep),
-                );
+                let raw_dep = &dep;
+                let dep = maybe_specifier.unwrap_or(dep.as_str());
+                let (kind, result) = if let Some(dep) = dep.strip_prefix("jsr:") {
+                  (deno_semver::package::PackageKind::Jsr, PackageReq::from_str(&dep))
+                } else if let Some(dep) = dep.strip_prefix("npm:") {
+                  (deno_semver::package::PackageKind::Npm, PackageReq::from_str(&dep))
+                } else {
+                  return Err(DeserializationError::InvalidJsrDependency {
+                    package: key,
+                    dependency: raw_dep.to_string(), });
+                };
+                let req = match result {
+                    Ok(req) => req,
+                    // todo(dsherret): surface error as source
+                    Err(_err) => return Err(DeserializationError::InvalidJsrDependency {
+                      package: key,
+                      dependency: raw_dep.to_string()
+                    }),
+                };
+                dependencies.insert(JsrDepPackageReq {
+                  kind,
+                  req,
+                });
               }
               jsr.insert(
                 key,
@@ -463,7 +484,7 @@ pub struct NewLockfileOptions<'a> {
   pub overwrite: bool,
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Lockfile {
   pub overwrite: bool,
   pub has_content_changed: bool,
@@ -745,11 +766,11 @@ impl Lockfile {
   pub fn insert_remote(&mut self, specifier: String, hash: String) {
     let entry = self.content.remote.entry(specifier);
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(hash);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if entry.get() != &hash {
           entry.insert(hash);
           self.has_content_changed = true;
@@ -775,11 +796,11 @@ impl Lockfile {
       dependencies,
     };
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(package_info);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if *entry.get() != package_info {
           entry.insert(package_info);
           self.has_content_changed = true;
@@ -796,11 +817,11 @@ impl Lockfile {
   ) {
     let entry = self.content.packages.npm_specifiers.entry(package_req);
     match entry {
-      Entry::Vacant(entry) => {
+      HashMapEntry::Vacant(entry) => {
         entry.insert(serialized_package_id);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      HashMapEntry::Occupied(mut entry) => {
         if *entry.get() != serialized_package_id {
           entry.insert(serialized_package_id);
           self.has_content_changed = true;
@@ -817,11 +838,11 @@ impl Lockfile {
   ) {
     let entry = self.content.packages.jsr_specifiers.entry(package_req);
     match entry {
-      Entry::Vacant(entry) => {
+      HashMapEntry::Vacant(entry) => {
         entry.insert(serialized_package_id);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      HashMapEntry::Occupied(mut entry) => {
         if *entry.get() != serialized_package_id {
           entry.insert(serialized_package_id);
           self.has_content_changed = true;
@@ -838,14 +859,14 @@ impl Lockfile {
   pub fn insert_package(&mut self, name: String, integrity: String) {
     let entry = self.content.packages.jsr.entry(name);
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(JsrPackageInfo {
           integrity,
           dependencies: Default::default(),
         });
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if *entry.get().integrity != integrity {
           entry.get_mut().integrity = integrity;
           self.has_content_changed = true;
@@ -890,11 +911,11 @@ impl Lockfile {
 
     let entry = self.content.redirects.entry(from);
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(to);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if *entry.get() != to {
           entry.insert(to);
           self.has_content_changed = true;
@@ -1305,7 +1326,7 @@ mod tests {
     assert_eq!(lockfile.content.packages.npm.len(), 2);
     assert_eq!(
       lockfile.content.packages.npm_specifiers,
-      BTreeMap::from([(
+      HashMap::from([(
         PackageReq::from_str("nanoid").unwrap(),
         "npm:nanoid@3.3.4".to_string()
       )])

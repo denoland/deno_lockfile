@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
+use deno_semver::package::PackageReq;
+
 use crate::NpmPackageInfo;
 use crate::PackagesContent;
 
@@ -30,7 +32,10 @@ impl LockfileNpmPackageId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct LockfilePkgReq(String);
+enum LockfilePkgReq {
+  Jsr(PackageReq),
+  Npm(PackageReq),
+}
 
 #[derive(Debug)]
 enum LockfileGraphPackage {
@@ -70,22 +75,21 @@ impl LockfilePackageGraph {
   ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
-        content.specifiers.len(),
+        content.jsr_specifiers.len() + content.npm_specifiers.len(),
       );
     // collect the specifiers to version mappings
     let package_count =
-      content.specifiers.len() + content.jsr.len() + content.npm.len();
+      content.jsr_specifiers.len() + content.npm_specifiers.len() + content.jsr.len() + content.npm.len();
     let mut packages = HashMap::with_capacity(package_count);
-    for (key, value) in content.specifiers {
-      if let Some(value) = value.strip_prefix("npm:") {
-        root_packages.insert(
-          LockfilePkgReq(key.to_string()),
-          LockfilePkgId::Npm(LockfileNpmPackageId(value.to_string())),
-        );
-      } else if let Some(value) = value.strip_prefix("jsr:") {
-        let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string()));
-        root_packages.insert(LockfilePkgReq(key), nv.clone());
-      }
+    for (req, value) in content.jsr_specifiers {
+      let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value));
+      root_packages.insert(LockfilePkgReq::Jsr(req), nv);
+    }
+    for (req, value) in content.npm_specifiers {
+      root_packages.insert(
+        LockfilePkgReq::Npm(req),
+        LockfilePkgId::Npm(LockfileNpmPackageId(value)),
+      );
     }
 
     for (nv, content_package) in content.jsr {
@@ -96,8 +100,11 @@ impl LockfilePackageGraph {
           integrity: content_package.integrity.clone(),
           dependencies: content_package
             .dependencies
-            .iter()
-            .map(|req| LockfilePkgReq(req.clone()))
+            .into_iter()
+            .map(|req| match req.kind {
+              deno_semver::package::PackageKind::Jsr => LockfilePkgReq::Jsr(req.req),
+              deno_semver::package::PackageKind::Npm => LockfilePkgReq::Npm(req.req),
+            })
             .collect(),
         }),
       );

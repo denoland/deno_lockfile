@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+use deno_semver::package::PackageReq;
 use serde::Serialize;
 
 use crate::JsrPackageInfo;
@@ -15,7 +16,7 @@ use crate::WorkspaceConfigContent;
 struct SerializedJsrPkg<'a> {
   integrity: &'a str,
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  dependencies: Vec<&'a str>,
+  dependencies: Vec<Cow<'a, str>>,
 }
 
 #[derive(Serialize)]
@@ -25,12 +26,74 @@ struct SerializedNpmPkg<'a> {
   dependencies: Vec<Cow<'a, str>>,
 }
 
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializedLockfilePackageJsonContent {
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub dependencies: Vec<String>,
+}
+
+impl SerializedLockfilePackageJsonContent {
+  pub fn is_empty(&self) -> bool {
+    self.dependencies.is_empty()
+  }
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializedWorkspaceMemberConfigContent {
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
+  pub dependencies: Vec<String>,
+  #[serde(skip_serializing_if = "SerializedLockfilePackageJsonContent::is_empty")]
+  #[serde(default)]
+  pub package_json: SerializedLockfilePackageJsonContent,
+}
+
+impl SerializedWorkspaceMemberConfigContent {
+  pub fn is_empty(&self) -> bool {
+    self.dependencies.is_empty() && self.package_json.is_empty()
+  }
+
+  pub fn dep_reqs(&self) -> impl Iterator<Item = &String> {
+    self
+      .package_json
+      .dependencies
+      .iter()
+      .chain(self.dependencies.iter())
+  }
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializedWorkspaceConfigContent<'a> {
+  #[serde(default, flatten)]
+  pub root: SerializedWorkspaceMemberConfigContent,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub members: BTreeMap<String, SerializedWorkspaceMemberConfigContent>,
+}
+
+impl SerializedWorkspaceConfigContent {
+  pub fn is_empty(&self) -> bool {
+    self.root.is_empty() && self.members.is_empty()
+  }
+
+  fn get_all_dep_reqs(&self) -> impl Iterator<Item = &String> {
+    self
+      .root
+      .dep_reqs()
+      .chain(self.members.values().flat_map(|m| m.dep_reqs()))
+  }
+}
+
 #[derive(Serialize)]
 struct LockfileV4<'a> {
   // order these based on auditability
   version: &'static str,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  specifiers: &'a BTreeMap<String, String>,
+  specifiers: BTreeMap<String, &'a str>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   jsr: BTreeMap<&'a str, SerializedJsrPkg<'a>>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -39,41 +102,32 @@ struct LockfileV4<'a> {
   redirects: &'a BTreeMap<String, String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   remote: &'a BTreeMap<String, String>,
-  #[serde(skip_serializing_if = "WorkspaceConfigContent::is_empty")]
-  workspace: &'a WorkspaceConfigContent,
+  #[serde(skip_serializing_if = "SerializedWorkspaceConfigContent::is_empty")]
+  workspace: &'a SerializedWorkspaceConfigContent,
 }
 
 pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_jsr<'a>(
     jsr: &'a BTreeMap<String, JsrPackageInfo>,
-    specifiers: &BTreeMap<String, String>,
+    jsr_specifiers: &HashMap<PackageReq, String>,
+    npm_specifiers: &HashMap<PackageReq, String>,
   ) -> BTreeMap<&'a str, SerializedJsrPkg<'a>> {
-    fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
-      if value.len() < 5 {
-        return None;
+    fn create_had_multiple_specifiers_map(
+      specifiers: &HashMap<PackageReq, String>,
+    ) -> HashMap<&str, bool> {
+      let mut had_multiple_specifiers: HashMap<&str, bool> =
+        HashMap::with_capacity(specifiers.len());
+      for req in specifiers.keys() {
+        had_multiple_specifiers
+          .entry(&req.name)
+          .and_modify(|v| *v = true)
+          .or_default();
       }
-      // 5 is length of `jsr:@`/`npm:@`
-      let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
-        // no version requirement
-        // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
-        return Some((value, None));
-      };
-      let name = &value[..at_index];
-      let version = &value[at_index + 1..];
-      Some((name, Some(version)))
+      had_multiple_specifiers
     }
 
-    let mut pkg_had_multiple_specifiers: HashMap<&str, bool> =
-      HashMap::with_capacity(specifiers.len());
-    for req in specifiers.keys() {
-      let Some((name, _)) = split_pkg_req(req) else {
-        continue; // corrupt
-      };
-      pkg_had_multiple_specifiers
-        .entry(name)
-        .and_modify(|v| *v = true)
-        .or_default();
-    }
+    let jsr_pkg_had_multiple_specifiers = create_had_multiple_specifiers_map(jsr_specifiers);
+    let npm_pkg_had_multiple_specifiers = create_had_multiple_specifiers_map(npm_specifiers);
 
     jsr
       .iter()
@@ -82,22 +136,29 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
           key.as_str(),
           SerializedJsrPkg {
             integrity: &value.integrity,
-            dependencies: value
+            dependencies: {
+              let mut dependencies = value
               .dependencies
               .iter()
               .filter_map(|dep| {
-                let (name, _req) = split_pkg_req(dep)?;
-                let has_single_specifier = pkg_had_multiple_specifiers
-                  .get(name)
+                let had_multiple_specifiers = match dep.kind {
+                    deno_semver::package::PackageKind::Jsr => &jsr_pkg_had_multiple_specifiers,
+                    deno_semver::package::PackageKind::Npm => &npm_pkg_had_multiple_specifiers,
+                };
+                let has_single_specifier = had_multiple_specifiers
+                  .get(dep.req.name.as_str())
                   .map(|had_multiple| !had_multiple)
                   .unwrap_or(false);
                 if has_single_specifier {
-                  Some(name)
+                  Some(Cow::Borrowed(dep.req.name.as_str()))
                 } else {
-                  Some(dep)
+                  Some(Cow::Owned(dep.to_string()))
                 }
               })
-              .collect(),
+              .collect::<Vec<_>>();
+            dependencies.sort();
+            dependencies
+            },
           },
         )
       })
@@ -162,14 +223,32 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
       .collect()
   }
 
+  fn handle_workspace(content: &WorkspaceConfigContent) -> SerializedWorkspaceConfigContent {
+    SerializedWorkspaceConfigContent {
+      root: SerializedWorkspaceMemberConfigContent {
+        dependencies: todo!(),
+        package_json: todo!(),
+    },
+      members: todo!(),
+    }
+  }
+
+  let mut specifiers = BTreeMap::new();
+  for (key, value) in &content.packages.jsr_specifiers {
+    specifiers.insert(key.to_string(), value.as_str());
+  }
+  for (key, value) in &content.packages.npm_specifiers {
+    specifiers.insert(key.to_string(), value.as_str());
+  }
+
   let lockfile = LockfileV4 {
     version: "4",
-    specifiers: &content.packages.specifiers,
-    jsr: handle_jsr(&content.packages.jsr, &content.packages.specifiers),
+    specifiers,
+    jsr: handle_jsr(&content.packages.jsr, &content.packages.jsr_specifiers, &content.packages.npm_specifiers),
     npm: handle_npm(&content.packages.npm),
     redirects: &content.redirects,
     remote: &content.remote,
-    workspace: &content.workspace,
+    workspace: handle_workspace(&content.workspace),
   };
   serde_json::to_string_pretty(&lockfile).unwrap()
 }
