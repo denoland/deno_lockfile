@@ -814,6 +814,7 @@ impl Lockfile {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use deno_semver::package::PackageReq;
   use pretty_assertions::assert_eq;
 
   const LOCKFILE_JSON: &str = r#"
