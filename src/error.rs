@@ -49,6 +49,8 @@ pub enum DeserializationError {
   InvalidNpmPackageDependency(String),
   #[error("Invalid package specifier '{0}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
   InvalidPackageSpecifier(String),
+  #[error("Invalid package specifier version '{version}' for '{specifier}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
+  InvalidPackageSpecifierVersion { specifier: String, version: String },
   #[error("Invalid jsr dependency '{dependency}' for '{package}'. Lockfile may be corrupt or you might be using an old version of Deno.")]
   InvalidJsrDependency { package: String, dependency: String },
   #[error("npm package '{0}' was not found and could not have its version resolved. Lockfile may be corrupt.")]

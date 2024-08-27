@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
+use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageReq;
 
 use crate::NpmPackageInfo;
@@ -35,6 +36,29 @@ impl LockfileNpmPackageId {
 enum LockfilePkgReq {
   Jsr(PackageReq),
   Npm(PackageReq),
+}
+
+impl LockfilePkgReq {
+  pub fn from_jsr_dep(dep: JsrDepPackageReq) -> Self {
+    match dep.kind {
+      deno_semver::package::PackageKind::Jsr => LockfilePkgReq::Jsr(dep.req),
+      deno_semver::package::PackageKind::Npm => LockfilePkgReq::Npm(dep.req),
+    }
+  }
+
+  pub fn into_jsr_dep(self) -> JsrDepPackageReq {
+    match self {
+      LockfilePkgReq::Jsr(req) => JsrDepPackageReq::jsr(req),
+      LockfilePkgReq::Npm(req) => JsrDepPackageReq::npm(req),
+    }
+  }
+
+  pub fn req(&self) -> &PackageReq {
+    match self {
+      LockfilePkgReq::Jsr(req) => req,
+      LockfilePkgReq::Npm(req) => req,
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -68,28 +92,34 @@ pub struct LockfilePackageGraph {
 }
 
 impl LockfilePackageGraph {
-  pub fn from_lockfile<'a>(
+  pub fn from_lockfile(
     content: PackagesContent,
     remotes: BTreeMap<String, String>,
-    old_config_file_packages: impl Iterator<Item = &'a str>,
+    old_config_file_packages: impl Iterator<Item = JsrDepPackageReq>,
   ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
-        content.jsr_specifiers.len() + content.npm_specifiers.len(),
+        content.specifiers.len(),
       );
     // collect the specifiers to version mappings
     let package_count =
-      content.jsr_specifiers.len() + content.npm_specifiers.len() + content.jsr.len() + content.npm.len();
+      content.specifiers.len() + content.jsr.len() + content.npm.len();
     let mut packages = HashMap::with_capacity(package_count);
-    for (req, value) in content.jsr_specifiers {
-      let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value));
-      root_packages.insert(LockfilePkgReq::Jsr(req), nv);
-    }
-    for (req, value) in content.npm_specifiers {
-      root_packages.insert(
-        LockfilePkgReq::Npm(req),
-        LockfilePkgId::Npm(LockfileNpmPackageId(value)),
-      );
+    for (dep, value) in content.specifiers {
+      match dep.kind {
+        deno_semver::package::PackageKind::Jsr => {
+          let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(format!(
+            "{}@{}",
+            dep.req.name, value
+          )));
+          root_packages.insert(LockfilePkgReq::Jsr(dep.req), nv);
+        }
+        deno_semver::package::PackageKind::Npm => {
+          let id = LockfileNpmPackageId(format!("{}@{}", dep.req.name, value));
+          root_packages
+            .insert(LockfilePkgReq::Npm(dep.req), LockfilePkgId::Npm(id));
+        }
+      }
     }
 
     for (nv, content_package) in content.jsr {
@@ -101,10 +131,7 @@ impl LockfilePackageGraph {
           dependencies: content_package
             .dependencies
             .into_iter()
-            .map(|req| match req.kind {
-              deno_semver::package::PackageKind::Jsr => LockfilePkgReq::Jsr(req.req),
-              deno_semver::package::PackageKind::Npm => LockfilePkgReq::Npm(req.req),
-            })
+            .map(LockfilePkgReq::from_jsr_dep)
             .collect(),
         }),
       );
@@ -130,7 +157,14 @@ impl LockfilePackageGraph {
     let mut root_ids = old_config_file_packages
       .filter_map(|value| {
         root_packages
-          .get(&LockfilePkgReq(value.to_string()))
+          .get(&match value.kind {
+            deno_semver::package::PackageKind::Jsr => {
+              LockfilePkgReq::Jsr(value.req)
+            }
+            deno_semver::package::PackageKind::Npm => {
+              LockfilePkgReq::Npm(value.req)
+            }
+          })
           .cloned()
       })
       .collect::<Vec<_>>();
@@ -181,14 +215,15 @@ impl LockfilePackageGraph {
 
   pub fn remove_root_packages(
     &mut self,
-    package_reqs: impl Iterator<Item = String>,
+    package_reqs: impl Iterator<Item = JsrDepPackageReq>,
   ) {
     let mut root_ids = Vec::new();
 
     // collect the root ids being removed
     {
-      let mut pending_reqs =
-        package_reqs.map(LockfilePkgReq).collect::<VecDeque<_>>();
+      let mut pending_reqs = package_reqs
+        .map(LockfilePkgReq::from_jsr_dep)
+        .collect::<VecDeque<_>>();
       let mut visited_root_packages =
         HashSet::with_capacity(self.root_packages.len());
       visited_root_packages.extend(pending_reqs.iter().cloned());
@@ -263,13 +298,14 @@ impl LockfilePackageGraph {
   ) {
     *remotes = self.remotes;
     for (req, id) in self.root_packages {
-      packages.specifiers.insert(
-        req.0,
-        match id {
-          LockfilePkgId::Npm(id) => format!("npm:{}", id.0),
-          LockfilePkgId::Jsr(nv) => format!("jsr:{}", nv.0),
-        },
-      );
+      let value = match &id {
+        LockfilePkgId::Jsr(nv) => nv.0.strip_prefix(&req.req().name).unwrap(),
+        LockfilePkgId::Npm(id) => id.0.strip_prefix(&req.req().name).unwrap(),
+      }
+      .strip_prefix("@")
+      .unwrap()
+      .to_string();
+      packages.specifiers.insert(req.into_jsr_dep(), value);
     }
 
     for (id, package) in self.packages {
@@ -285,7 +321,7 @@ impl LockfilePackageGraph {
               dependencies: package
                 .dependencies
                 .into_iter()
-                .map(|req| req.0)
+                .map(|req| req.into_jsr_dep())
                 .collect(),
             },
           );

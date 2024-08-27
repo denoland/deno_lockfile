@@ -10,6 +10,8 @@ use deno_lockfile::PackagesContent;
 use deno_lockfile::SetWorkspaceConfigOptions;
 use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
+use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageReq;
 use file_test_runner::collect_and_run_tests;
 use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 use file_test_runner::collection::CollectOptions;
@@ -55,14 +57,14 @@ fn config_changes_test(test: &CollectedTest) {
   #[serde(rename_all = "camelCase")]
   struct LockfilePackageJsonContent {
     #[serde(default)]
-    dependencies: BTreeSet<String>,
+    dependencies: BTreeSet<PackageReq>,
   }
 
   #[derive(Debug, Default, Clone, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
   struct WorkspaceMemberConfigContent {
     #[serde(default)]
-    dependencies: BTreeSet<String>,
+    dependencies: BTreeSet<JsrDepPackageReq>,
     #[serde(default)]
     package_json: LockfilePackageJsonContent,
   }
@@ -81,8 +83,13 @@ fn config_changes_test(test: &CollectedTest) {
     fn into_workspace_config(self) -> WorkspaceConfig {
       WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: self.root.dependencies,
-          package_json_deps: self.root.package_json.dependencies,
+          dependencies: self.root.dependencies.into_iter().collect(),
+          package_json_deps: self
+            .root
+            .package_json
+            .dependencies
+            .into_iter()
+            .collect(),
         },
         members: self
           .members
@@ -91,8 +98,12 @@ fn config_changes_test(test: &CollectedTest) {
             (
               k,
               WorkspaceMemberConfig {
-                dependencies: v.dependencies,
-                package_json_deps: v.package_json.dependencies,
+                dependencies: v.dependencies.into_iter().collect(),
+                package_json_deps: v
+                  .package_json
+                  .dependencies
+                  .into_iter()
+                  .collect(),
               },
             )
           })
