@@ -7,7 +7,9 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
+use deno_semver::Version;
 
 use crate::NpmPackageInfo;
 use crate::PackagesContent;
@@ -19,7 +21,7 @@ enum LockfilePkgId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct LockfileJsrPkgNv(String);
+struct LockfileJsrPkgNv(PackageNv);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct LockfileNpmPackageId(String);
@@ -107,10 +109,13 @@ impl LockfilePackageGraph {
     for (dep, value) in content.specifiers {
       match dep.kind {
         deno_semver::package::PackageKind::Jsr => {
-          let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(format!(
-            "{}@{}",
-            dep.req.name, value
-          )));
+          let Ok(version) = Version::parse_standard(&value) else {
+            continue;
+          };
+          let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(PackageNv {
+            name: dep.req.name.clone(),
+            version,
+          }));
           root_packages.insert(LockfilePkgReq::Jsr(dep.req), nv);
         }
         deno_semver::package::PackageKind::Npm => {
@@ -298,12 +303,15 @@ impl LockfilePackageGraph {
     *remotes = self.remotes;
     for (req, id) in self.root_packages {
       let value = match &id {
-        LockfilePkgId::Jsr(nv) => nv.0.strip_prefix(&req.req().name).unwrap(),
-        LockfilePkgId::Npm(id) => id.0.strip_prefix(&req.req().name).unwrap(),
-      }
-      .strip_prefix("@")
-      .unwrap()
-      .to_string();
+        LockfilePkgId::Jsr(nv) => nv.0.version.to_string(),
+        LockfilePkgId::Npm(id) => id
+          .0
+          .strip_prefix(&req.req().name)
+          .unwrap()
+          .strip_prefix("@")
+          .unwrap()
+          .to_string(),
+      };
       packages.specifiers.insert(req.into_jsr_dep(), value);
     }
 

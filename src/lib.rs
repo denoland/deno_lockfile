@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -105,7 +106,7 @@ pub struct PackagesContent {
   ///     ]
   ///   }
   /// }
-  pub jsr: BTreeMap<String, JsrPackageInfo>,
+  pub jsr: BTreeMap<PackageNv, JsrPackageInfo>,
 
   /// Mapping between resolved npm specifiers and their associated info, eg.
   /// {
@@ -311,9 +312,9 @@ impl LockfileContent {
             );
           }
         }
-        let mut jsr: BTreeMap<String, JsrPackageInfo> = Default::default();
+        let mut jsr: BTreeMap<PackageNv, JsrPackageInfo> = Default::default();
         {
-          let raw_jsr: BTreeMap<String, RawJsrPackageInfo> =
+          let raw_jsr: BTreeMap<PackageNv, RawJsrPackageInfo> =
             deserialize_section(&mut json, "jsr")?;
           if !raw_jsr.is_empty() {
             // collect the specifier information
@@ -415,7 +416,7 @@ impl Lockfile {
     }
   }
 
-  pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, LockfileError> {
+  pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, Box<LockfileError>> {
     fn load_content(
       content: &str,
     ) -> Result<LockfileContent, LockfileErrorReason> {
@@ -455,10 +456,10 @@ impl Lockfile {
     }
 
     if opts.content.trim().is_empty() {
-      return Err(LockfileError {
+      return Err(Box::new(LockfileError {
         file_path: opts.file_path.display().to_string(),
         reason: LockfileErrorReason::Empty,
-      });
+      }));
     }
 
     let content =
@@ -748,7 +749,7 @@ impl Lockfile {
   ///
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
-  pub fn insert_package(&mut self, name: String, integrity: String) {
+  pub fn insert_package(&mut self, name: PackageNv, integrity: String) {
     let entry = self.content.packages.jsr.entry(name);
     match entry {
       BTreeMapEntry::Vacant(entry) => {
@@ -774,10 +775,10 @@ impl Lockfile {
   /// adding them here as unresolved dependencies will be ignored.
   pub fn add_package_deps(
     &mut self,
-    name: &str,
+    nv: &PackageNv,
     deps: impl Iterator<Item = JsrDepPackageReq>,
   ) {
-    if let Some(pkg) = self.content.packages.jsr.get_mut(name) {
+    if let Some(pkg) = self.content.packages.jsr.get_mut(nv) {
       let start_count = pkg.dependencies.len();
       // don't include unresolved dependendencies
       let resolved_deps =
@@ -836,7 +837,7 @@ mod tests {
   }
 }"#;
 
-  fn setup(overwrite: bool) -> Result<Lockfile, LockfileError> {
+  fn setup(overwrite: bool) -> Result<Lockfile, Box<LockfileError>> {
     let file_path =
       std::env::current_dir().unwrap().join("valid_lockfile.json");
     Lockfile::new(NewLockfileOptions {
@@ -1241,18 +1242,19 @@ mod tests {
     lockfile.has_content_changed = false;
 
     assert!(!lockfile.has_content_changed);
-    lockfile.insert_package("dep".to_string(), "integrity".to_string());
+    let dep_nv = PackageNv::from_str("dep@1.0.0").unwrap();
+    lockfile.insert_package(dep_nv.clone(), "integrity".to_string());
     // has changed even though it was empty
     assert!(lockfile.has_content_changed);
 
     // now try inserting the same package
     lockfile.has_content_changed = false;
-    lockfile.insert_package("dep".to_string(), "integrity".to_string());
+    lockfile.insert_package(dep_nv.clone(), "integrity".to_string());
     assert!(!lockfile.has_content_changed);
 
     // now with new deps
     lockfile.add_package_deps(
-      "dep",
+      &dep_nv,
       vec![JsrDepPackageReq::jsr(PackageReq::from_str("dep2").unwrap())]
         .into_iter(),
     );
@@ -1261,7 +1263,7 @@ mod tests {
 
     // now insert a dep that doesn't have a package specifier
     lockfile.add_package_deps(
-      "dep",
+      &dep_nv,
       vec![JsrDepPackageReq::jsr(
         PackageReq::from_str("dep-non-resolved").unwrap(),
       )]

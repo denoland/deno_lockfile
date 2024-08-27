@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use serde::Serialize;
 
 use crate::JsrPackageInfo;
@@ -84,7 +85,7 @@ struct LockfileV4<'a> {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   specifiers: BTreeMap<String, &'a String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  jsr: BTreeMap<&'a str, SerializedJsrPkg<'a>>,
+  jsr: BTreeMap<&'a PackageNv, SerializedJsrPkg<'a>>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   npm: BTreeMap<&'a str, SerializedNpmPkg<'a>>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -97,9 +98,9 @@ struct LockfileV4<'a> {
 
 pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_jsr<'a>(
-    jsr: &'a BTreeMap<String, JsrPackageInfo>,
+    jsr: &'a BTreeMap<PackageNv, JsrPackageInfo>,
     specifiers: &HashMap<JsrDepPackageReq, String>,
-  ) -> BTreeMap<&'a str, SerializedJsrPkg<'a>> {
+  ) -> BTreeMap<&'a PackageNv, SerializedJsrPkg<'a>> {
     fn create_had_multiple_specifiers_map(
       specifiers: &HashMap<JsrDepPackageReq, String>,
     ) -> HashMap<&str, bool> {
@@ -121,7 +122,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
       .iter()
       .map(|(key, value)| {
         (
-          key.as_str(),
+          key,
           SerializedJsrPkg {
             integrity: &value.integrity,
             dependencies: {

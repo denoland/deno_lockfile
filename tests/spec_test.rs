@@ -11,6 +11,7 @@ use deno_lockfile::SetWorkspaceConfigOptions;
 use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
 use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use file_test_runner::collect_and_run_tests;
 use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 use file_test_runner::collection::CollectOptions;
@@ -227,8 +228,9 @@ fn verify_packages_content(packages: &PackagesContent) {
     );
     if let Some(npm_id) = id.strip_prefix("npm:") {
       assert!(packages.npm.contains_key(npm_id), "Missing: {}", id);
-    } else if let Some(jsr_id) = id.strip_prefix("jsr:") {
-      assert!(packages.jsr.contains_key(jsr_id), "Missing: {}", id);
+    } else if let Some(jsr_nv) = id.strip_prefix("jsr:") {
+      let nv = PackageNv::from_str(jsr_nv).unwrap();
+      assert!(packages.jsr.contains_key(&nv), "Missing: {}", id);
     } else {
       panic!("Invalid package id: {}", id);
     }
@@ -262,9 +264,10 @@ fn verify_packages_content(packages: &PackagesContent) {
           dep_id,
           pkg_id,
         );
-      } else if let Some(jsr_id) = dep_id.strip_prefix("jsr:") {
+      } else if let Some(jsr_nv) = dep_id.strip_prefix("jsr:") {
+        let nv = PackageNv::from_str(jsr_nv).unwrap();
         assert!(
-          packages.jsr.contains_key(jsr_id),
+          packages.jsr.contains_key(&nv),
           "Missing: '{}' dep in '{}'",
           dep_id,
           pkg_id,
