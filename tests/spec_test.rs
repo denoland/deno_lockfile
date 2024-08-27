@@ -246,10 +246,16 @@ fn verify_packages_content(packages: &PackagesContent) {
   }
   for (pkg_id, package) in &packages.jsr {
     for req in &package.dependencies {
-      let dep_id = match packages.specifiers.get(req) {
-        Some(dep_id) => dep_id,
-        None => panic!("Missing specifier for '{}' in '{}'", req, pkg_id),
+      let Some((req, id_suffix_or_nv)) = packages.specifiers.get_key_value(req)
+      else {
+        panic!("Missing specifier for '{}' in '{}'", req, pkg_id);
       };
+      let dep_id = format!(
+        "{}{}@{}",
+        req.kind.scheme_with_colon(),
+        req.req.name,
+        id_suffix_or_nv
+      );
       if let Some(npm_id) = dep_id.strip_prefix("npm:") {
         assert!(
           packages.npm.contains_key(npm_id),
