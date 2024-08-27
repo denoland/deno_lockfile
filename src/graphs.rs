@@ -6,6 +6,11 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
+use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
+use deno_semver::package::PackageReq;
+use deno_semver::Version;
+
 use crate::NpmPackageInfo;
 use crate::PackagesContent;
 
@@ -16,7 +21,7 @@ enum LockfilePkgId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct LockfileJsrPkgNv(String);
+struct LockfileJsrPkgNv(PackageNv);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct LockfileNpmPackageId(String);
@@ -24,13 +29,38 @@ struct LockfileNpmPackageId(String);
 impl LockfileNpmPackageId {
   pub fn parts(&self) -> impl Iterator<Item = &str> {
     let package_id = &self.0;
-    let package_id = package_id.strip_prefix("npm:").unwrap_or(package_id);
     package_id.split('_').filter(|s| !s.is_empty())
   }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct LockfilePkgReq(String);
+enum LockfilePkgReq {
+  Jsr(PackageReq),
+  Npm(PackageReq),
+}
+
+impl LockfilePkgReq {
+  pub fn from_jsr_dep(dep: JsrDepPackageReq) -> Self {
+    match dep.kind {
+      deno_semver::package::PackageKind::Jsr => LockfilePkgReq::Jsr(dep.req),
+      deno_semver::package::PackageKind::Npm => LockfilePkgReq::Npm(dep.req),
+    }
+  }
+
+  pub fn into_jsr_dep(self) -> JsrDepPackageReq {
+    match self {
+      LockfilePkgReq::Jsr(req) => JsrDepPackageReq::jsr(req),
+      LockfilePkgReq::Npm(req) => JsrDepPackageReq::npm(req),
+    }
+  }
+
+  pub fn req(&self) -> &PackageReq {
+    match self {
+      LockfilePkgReq::Jsr(req) => req,
+      LockfilePkgReq::Npm(req) => req,
+    }
+  }
+}
 
 #[derive(Debug)]
 enum LockfileGraphPackage {
@@ -63,10 +93,10 @@ pub struct LockfilePackageGraph {
 }
 
 impl LockfilePackageGraph {
-  pub fn from_lockfile<'a>(
+  pub fn from_lockfile(
     content: PackagesContent,
     remotes: BTreeMap<String, String>,
-    old_config_file_packages: impl Iterator<Item = &'a str>,
+    old_config_file_packages: impl Iterator<Item = JsrDepPackageReq>,
   ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
@@ -76,15 +106,23 @@ impl LockfilePackageGraph {
     let package_count =
       content.specifiers.len() + content.jsr.len() + content.npm.len();
     let mut packages = HashMap::with_capacity(package_count);
-    for (key, value) in content.specifiers {
-      if let Some(value) = value.strip_prefix("npm:") {
-        root_packages.insert(
-          LockfilePkgReq(key.to_string()),
-          LockfilePkgId::Npm(LockfileNpmPackageId(value.to_string())),
-        );
-      } else if let Some(value) = value.strip_prefix("jsr:") {
-        let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(value.to_string()));
-        root_packages.insert(LockfilePkgReq(key), nv.clone());
+    for (dep, value) in content.specifiers {
+      match dep.kind {
+        deno_semver::package::PackageKind::Jsr => {
+          let Ok(version) = Version::parse_standard(&value) else {
+            continue;
+          };
+          let nv = LockfilePkgId::Jsr(LockfileJsrPkgNv(PackageNv {
+            name: dep.req.name.clone(),
+            version,
+          }));
+          root_packages.insert(LockfilePkgReq::Jsr(dep.req), nv);
+        }
+        deno_semver::package::PackageKind::Npm => {
+          let id = LockfileNpmPackageId(format!("{}@{}", dep.req.name, value));
+          root_packages
+            .insert(LockfilePkgReq::Npm(dep.req), LockfilePkgId::Npm(id));
+        }
       }
     }
 
@@ -96,8 +134,8 @@ impl LockfilePackageGraph {
           integrity: content_package.integrity.clone(),
           dependencies: content_package
             .dependencies
-            .iter()
-            .map(|req| LockfilePkgReq(req.clone()))
+            .into_iter()
+            .map(LockfilePkgReq::from_jsr_dep)
             .collect(),
         }),
       );
@@ -123,7 +161,14 @@ impl LockfilePackageGraph {
     let mut root_ids = old_config_file_packages
       .filter_map(|value| {
         root_packages
-          .get(&LockfilePkgReq(value.to_string()))
+          .get(&match value.kind {
+            deno_semver::package::PackageKind::Jsr => {
+              LockfilePkgReq::Jsr(value.req)
+            }
+            deno_semver::package::PackageKind::Npm => {
+              LockfilePkgReq::Npm(value.req)
+            }
+          })
           .cloned()
       })
       .collect::<Vec<_>>();
@@ -174,14 +219,15 @@ impl LockfilePackageGraph {
 
   pub fn remove_root_packages(
     &mut self,
-    package_reqs: impl Iterator<Item = String>,
+    package_reqs: impl Iterator<Item = JsrDepPackageReq>,
   ) {
     let mut root_ids = Vec::new();
 
     // collect the root ids being removed
     {
-      let mut pending_reqs =
-        package_reqs.map(LockfilePkgReq).collect::<VecDeque<_>>();
+      let mut pending_reqs = package_reqs
+        .map(LockfilePkgReq::from_jsr_dep)
+        .collect::<VecDeque<_>>();
       let mut visited_root_packages =
         HashSet::with_capacity(self.root_packages.len());
       visited_root_packages.extend(pending_reqs.iter().cloned());
@@ -256,13 +302,17 @@ impl LockfilePackageGraph {
   ) {
     *remotes = self.remotes;
     for (req, id) in self.root_packages {
-      packages.specifiers.insert(
-        req.0,
-        match id {
-          LockfilePkgId::Npm(id) => format!("npm:{}", id.0),
-          LockfilePkgId::Jsr(nv) => format!("jsr:{}", nv.0),
-        },
-      );
+      let value = match &id {
+        LockfilePkgId::Jsr(nv) => nv.0.version.to_string(),
+        LockfilePkgId::Npm(id) => id
+          .0
+          .strip_prefix(&req.req().name)
+          .unwrap()
+          .strip_prefix("@")
+          .unwrap()
+          .to_string(),
+      };
+      packages.specifiers.insert(req.into_jsr_dep(), value);
     }
 
     for (id, package) in self.packages {
@@ -278,7 +328,7 @@ impl LockfilePackageGraph {
               dependencies: package
                 .dependencies
                 .into_iter()
-                .map(|req| req.0)
+                .map(|req| req.into_jsr_dep())
                 .collect(),
             },
           );

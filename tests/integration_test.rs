@@ -1,7 +1,6 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use deno_lockfile::WorkspaceConfig;
@@ -9,6 +8,7 @@ use deno_lockfile::WorkspaceMemberConfig;
 
 use deno_lockfile::Lockfile;
 use deno_lockfile::SetWorkspaceConfigOptions;
+use deno_semver::jsr::JsrDepPackageReq;
 
 #[test]
 fn adding_workspace_does_not_cause_content_changes() {
@@ -22,10 +22,13 @@ fn adding_workspace_does_not_cause_content_changes() {
       no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: BTreeSet::from(["jsr:@scope/package".to_string()]),
+          dependencies: HashSet::from([JsrDepPackageReq::from_str(
+            "jsr:@scope/package",
+          )
+          .unwrap()]),
           package_json_deps: Default::default(),
         },
-        members: BTreeMap::new(),
+        members: Default::default(),
       },
     });
     assert!(!lockfile.has_content_changed); // should not have changed
@@ -40,10 +43,13 @@ fn adding_workspace_does_not_cause_content_changes() {
       no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: BTreeSet::from(["jsr:@scope/package2".to_string()]),
+          dependencies: HashSet::from([JsrDepPackageReq::from_str(
+            "jsr:@scope/package2",
+          )
+          .unwrap()]),
           package_json_deps: Default::default(),
         },
-        members: BTreeMap::new(),
+        members: Default::default(),
       },
     });
     assert!(lockfile.has_content_changed);
@@ -63,10 +69,13 @@ fn adding_workspace_does_not_cause_content_changes() {
       no_npm: false,
       config: WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: BTreeSet::from(["jsr:@scope/package".to_string()]),
+          dependencies: HashSet::from([JsrDepPackageReq::from_str(
+            "jsr:@scope/package",
+          )
+          .unwrap()]),
           package_json_deps: Default::default(),
         },
-        members: BTreeMap::new(),
+        members: Default::default(),
       },
     });
     assert!(lockfile.has_content_changed); // should have changed since lockfile was not empty

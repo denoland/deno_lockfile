@@ -10,6 +10,8 @@ use deno_lockfile::PackagesContent;
 use deno_lockfile::SetWorkspaceConfigOptions;
 use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
+use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use file_test_runner::collect_and_run_tests;
 use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 use file_test_runner::collection::CollectOptions;
@@ -55,14 +57,14 @@ fn config_changes_test(test: &CollectedTest) {
   #[serde(rename_all = "camelCase")]
   struct LockfilePackageJsonContent {
     #[serde(default)]
-    dependencies: BTreeSet<String>,
+    dependencies: BTreeSet<JsrDepPackageReq>,
   }
 
   #[derive(Debug, Default, Clone, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
   struct WorkspaceMemberConfigContent {
     #[serde(default)]
-    dependencies: BTreeSet<String>,
+    dependencies: BTreeSet<JsrDepPackageReq>,
     #[serde(default)]
     package_json: LockfilePackageJsonContent,
   }
@@ -81,8 +83,13 @@ fn config_changes_test(test: &CollectedTest) {
     fn into_workspace_config(self) -> WorkspaceConfig {
       WorkspaceConfig {
         root: WorkspaceMemberConfig {
-          dependencies: self.root.dependencies,
-          package_json_deps: self.root.package_json.dependencies,
+          dependencies: self.root.dependencies.into_iter().collect(),
+          package_json_deps: self
+            .root
+            .package_json
+            .dependencies
+            .into_iter()
+            .collect(),
         },
         members: self
           .members
@@ -91,8 +98,12 @@ fn config_changes_test(test: &CollectedTest) {
             (
               k,
               WorkspaceMemberConfig {
-                dependencies: v.dependencies,
-                package_json_deps: v.package_json.dependencies,
+                dependencies: v.dependencies.into_iter().collect(),
+                package_json_deps: v
+                  .package_json
+                  .dependencies
+                  .into_iter()
+                  .collect(),
               },
             )
           })
@@ -208,11 +219,18 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
 
 fn verify_packages_content(packages: &PackagesContent) {
   // verify the specifiers
-  for id in packages.specifiers.values() {
+  for (req, id_suffix_or_nv) in &packages.specifiers {
+    let id = format!(
+      "{}{}@{}",
+      req.kind.scheme_with_colon(),
+      req.req.name,
+      id_suffix_or_nv
+    );
     if let Some(npm_id) = id.strip_prefix("npm:") {
       assert!(packages.npm.contains_key(npm_id), "Missing: {}", id);
-    } else if let Some(jsr_id) = id.strip_prefix("jsr:") {
-      assert!(packages.jsr.contains_key(jsr_id), "Missing: {}", id);
+    } else if let Some(jsr_nv) = id.strip_prefix("jsr:") {
+      let nv = PackageNv::from_str(jsr_nv).unwrap();
+      assert!(packages.jsr.contains_key(&nv), "Missing: {}", id);
     } else {
       panic!("Invalid package id: {}", id);
     }
@@ -229,10 +247,16 @@ fn verify_packages_content(packages: &PackagesContent) {
   }
   for (pkg_id, package) in &packages.jsr {
     for req in &package.dependencies {
-      let dep_id = match packages.specifiers.get(req) {
-        Some(dep_id) => dep_id,
-        None => panic!("Missing specifier for '{}' in '{}'", req, pkg_id),
+      let Some((req, id_suffix_or_nv)) = packages.specifiers.get_key_value(req)
+      else {
+        panic!("Missing specifier for '{}' in '{}'", req, pkg_id);
       };
+      let dep_id = format!(
+        "{}{}@{}",
+        req.kind.scheme_with_colon(),
+        req.req.name,
+        id_suffix_or_nv
+      );
       if let Some(npm_id) = dep_id.strip_prefix("npm:") {
         assert!(
           packages.npm.contains_key(npm_id),
@@ -240,9 +264,10 @@ fn verify_packages_content(packages: &PackagesContent) {
           dep_id,
           pkg_id,
         );
-      } else if let Some(jsr_id) = dep_id.strip_prefix("jsr:") {
+      } else if let Some(jsr_nv) = dep_id.strip_prefix("jsr:") {
+        let nv = PackageNv::from_str(jsr_nv).unwrap();
         assert!(
-          packages.jsr.contains_key(jsr_id),
+          packages.jsr.contains_key(&nv),
           "Missing: '{}' dep in '{}'",
           dep_id,
           pkg_id,

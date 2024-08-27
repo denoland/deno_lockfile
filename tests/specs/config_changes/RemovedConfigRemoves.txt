@@ -206,7 +206,7 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@scope/package_orphan": "jsr:@scope/package_orphan@0.0.1"
+    "jsr:@scope/package_orphan": "0.0.1"
   },
   "jsr": {
     "@scope/package_orphan@0.0.1": {

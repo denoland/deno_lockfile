@@ -944,10 +944,10 @@
 {
   "version": "4",
   "specifiers": {
-    "npm:@spotify/web-api-ts-sdk": "npm:@spotify/web-api-ts-sdk@1.2.0",
-    "npm:autoprefixer@10.4.16": "npm:autoprefixer@10.4.16_postcss@8.4.31",
-    "npm:cssnano@6.0.1": "npm:cssnano@6.0.1_postcss@8.4.31",
-    "npm:postcss@8.4.31": "npm:postcss@8.4.31"
+    "npm:@spotify/web-api-ts-sdk": "1.2.0",
+    "npm:autoprefixer@10.4.16": "10.4.16_postcss@8.4.31",
+    "npm:cssnano@6.0.1": "6.0.1_postcss@8.4.31",
+    "npm:postcss@8.4.31": "8.4.31"
   },
   "npm": {
     "@spotify/web-api-ts-sdk@1.2.0": {

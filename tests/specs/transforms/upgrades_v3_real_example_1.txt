@@ -344,20 +344,20 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@deno/cache-dir@^0.8.0": "jsr:@deno/cache-dir@0.8.0",
-    "jsr:@deno/dnt@^0.41.2": "jsr:@deno/dnt@0.41.2",
-    "jsr:@deno/graph@^0.69.7": "jsr:@deno/graph@0.69.10",
-    "jsr:@std/assert@^0.218.2": "jsr:@std/assert@0.218.2",
-    "jsr:@std/assert@^0.225.2": "jsr:@std/assert@0.225.3",
-    "jsr:@std/bytes@^0.218.2": "jsr:@std/bytes@0.218.2",
-    "jsr:@std/fmt@^0.218.2": "jsr:@std/fmt@0.218.2",
-    "jsr:@std/fs@^0.218.2": "jsr:@std/fs@0.218.2",
-    "jsr:@std/io@^0.218.2": "jsr:@std/io@0.218.2",
-    "jsr:@std/path@^0.218.2": "jsr:@std/path@0.218.2",
-    "jsr:@std/path@^0.225.1": "jsr:@std/path@0.225.1",
-    "npm:@ts-morph/bootstrap@0.22": "npm:@ts-morph/bootstrap@0.22.0",
-    "npm:code-block-writer@^13.0.1": "npm:code-block-writer@13.0.1",
-    "npm:jsonc-parser": "npm:jsonc-parser@3.2.1"
+    "jsr:@deno/cache-dir@^0.8.0": "0.8.0",
+    "jsr:@deno/dnt@^0.41.2": "0.41.2",
+    "jsr:@deno/graph@^0.69.7": "0.69.10",
+    "jsr:@std/assert@^0.218.2": "0.218.2",
+    "jsr:@std/assert@^0.225.2": "0.225.3",
+    "jsr:@std/bytes@^0.218.2": "0.218.2",
+    "jsr:@std/fmt@^0.218.2": "0.218.2",
+    "jsr:@std/fs@^0.218.2": "0.218.2",
+    "jsr:@std/io@^0.218.2": "0.218.2",
+    "jsr:@std/path@^0.218.2": "0.218.2",
+    "jsr:@std/path@^0.225.1": "0.225.1",
+    "npm:@ts-morph/bootstrap@0.22": "0.22.0",
+    "npm:code-block-writer@^13.0.1": "13.0.1",
+    "npm:jsonc-parser": "3.2.1"
   },
   "jsr": {
     "@deno/cache-dir@0.8.0": {

@@ -1,15 +1,21 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
+
 mod error;
 mod graphs;
 
-use std::collections::btree_map::Entry;
+use std::borrow::Cow;
+use std::collections::btree_map::Entry as BTreeMapEntry;
+use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -39,20 +45,16 @@ pub struct SetWorkspaceConfigOptions {
   pub no_npm: bool,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceConfig {
-  #[serde(flatten)]
   pub root: WorkspaceMemberConfig,
-  #[serde(default)]
-  pub members: BTreeMap<String, WorkspaceMemberConfig>,
+  pub members: HashMap<String, WorkspaceMemberConfig>,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceMemberConfig {
-  #[serde(default)]
-  pub dependencies: BTreeSet<String>,
-  #[serde(default)]
-  pub package_json_deps: BTreeSet<String>,
+  pub dependencies: HashSet<JsrDepPackageReq>,
+  pub package_json_deps: HashSet<JsrDepPackageReq>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,27 +77,24 @@ pub struct NpmPackageInfo {
   pub dependencies: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone)]
 pub struct JsrPackageInfo {
   pub integrity: String,
   /// List of package requirements found in the dependency.
   ///
   /// This is used to tell when a package can be removed from the lockfile.
-  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
-  #[serde(default)]
-  pub dependencies: BTreeSet<String>,
+  pub dependencies: HashSet<JsrDepPackageReq>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Hash)]
+#[derive(Clone, Debug, Default)]
 pub struct PackagesContent {
-  /// Mapping between requests for deno specifiers and resolved packages, eg.
+  /// Mapping between requests for jsr specifiers and resolved packages, eg.
   /// {
-  ///   "jsr:@foo/bar@^2.1": "jsr:@foo/bar@2.1.3",
-  ///   "npm:@ts-morph/common@^11": "npm:@ts-morph/common@11.0.0",
+  ///   "jsr:@foo/bar@^2.1": "2.1.3",
+  ///   "npm:@ts-morph/common@^11": "11.0.0",
+  ///   "npm:@ts-morph/common@^12": "12.0.0__some-peer-dep@1.0.0",
   /// }
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  #[serde(default)]
-  pub specifiers: BTreeMap<String, String>,
+  pub specifiers: HashMap<JsrDepPackageReq, String>,
 
   /// Mapping between resolved jsr specifiers and their associated info, eg.
   /// {
@@ -107,9 +106,7 @@ pub struct PackagesContent {
   ///     ]
   ///   }
   /// }
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  #[serde(default)]
-  pub jsr: BTreeMap<String, JsrPackageInfo>,
+  pub jsr: BTreeMap<PackageNv, JsrPackageInfo>,
 
   /// Mapping between resolved npm specifiers and their associated info, eg.
   /// {
@@ -120,8 +117,6 @@ pub struct PackagesContent {
   ///     }
   ///   }
   /// }
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  #[serde(default)]
   pub npm: BTreeMap<String, NpmPackageInfo>,
 }
 
@@ -131,12 +126,9 @@ impl PackagesContent {
   }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, Clone, Deserialize)]
 pub(crate) struct LockfilePackageJsonContent {
-  #[serde(default)]
-  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
-  pub dependencies: BTreeSet<String>,
+  pub dependencies: HashSet<JsrDepPackageReq>,
 }
 
 impl LockfilePackageJsonContent {
@@ -145,13 +137,11 @@ impl LockfilePackageJsonContent {
   }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceMemberConfigContent {
-  #[serde(skip_serializing_if = "BTreeSet::is_empty")]
   #[serde(default)]
-  pub dependencies: BTreeSet<String>,
-  #[serde(skip_serializing_if = "LockfilePackageJsonContent::is_empty")]
+  pub dependencies: HashSet<JsrDepPackageReq>,
   #[serde(default)]
   pub package_json: LockfilePackageJsonContent,
 }
@@ -161,7 +151,7 @@ impl WorkspaceMemberConfigContent {
     self.dependencies.is_empty() && self.package_json.is_empty()
   }
 
-  pub fn dep_reqs(&self) -> impl Iterator<Item = &String> {
+  pub fn dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
     self
       .package_json
       .dependencies
@@ -170,14 +160,13 @@ impl WorkspaceMemberConfigContent {
   }
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceConfigContent {
   #[serde(default, flatten)]
   pub root: WorkspaceMemberConfigContent,
-  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  pub members: BTreeMap<String, WorkspaceMemberConfigContent>,
+  pub members: HashMap<String, WorkspaceMemberConfigContent>,
 }
 
 impl WorkspaceConfigContent {
@@ -185,7 +174,7 @@ impl WorkspaceConfigContent {
     self.root.is_empty() && self.members.is_empty()
   }
 
-  fn get_all_dep_reqs(&self) -> impl Iterator<Item = &String> {
+  fn get_all_dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
     self
       .root
       .dep_reqs()
@@ -193,9 +182,8 @@ impl WorkspaceConfigContent {
   }
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Default, Clone)]
 pub struct LockfileContent {
-  pub(crate) version: String,
   pub packages: PackagesContent,
   pub redirects: BTreeMap<String, String>,
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
@@ -215,21 +203,6 @@ impl LockfileContent {
       let name = &value[..at_index];
       let version = &value[at_index + 1..];
       Some((name, version))
-    }
-
-    fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
-      if value.len() < 5 {
-        return None;
-      }
-      // 5 is length of `jsr:@`/`npm:@`
-      let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
-        // no version requirement
-        // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
-        return Some((value, None));
-      };
-      let name = &value[..at_index];
-      let version = &value[at_index + 1..];
-      Some((name, Some(version)))
     }
 
     #[derive(Debug, Deserialize)]
@@ -260,22 +233,23 @@ impl LockfileContent {
     use serde_json::Value;
 
     let Value::Object(mut json) = json else {
-      return Ok(Self::empty_with_version("4".to_string()));
+      return Ok(Self::default());
     };
 
-    let version = json
-      .remove("version")
-      .and_then(|v| match v {
-        Value::String(v) => Some(v),
-        _ => None,
-      })
-      .unwrap_or_else(|| "4".to_string());
-
     Ok(LockfileContent {
-      version,
       packages: {
-        let specifiers: BTreeMap<String, String> =
+        let deserialized_specifiers: BTreeMap<String, String> =
           deserialize_section(&mut json, "specifiers")?;
+        let mut specifiers =
+          HashMap::with_capacity(deserialized_specifiers.len());
+        for (key, value) in deserialized_specifiers {
+          let dep = JsrDepPackageReq::from_str(&key).map_err(|_err| {
+            // todo(dsherret): surface internal error here
+            DeserializationError::InvalidPackageSpecifier(key.to_string())
+          })?;
+          specifiers.insert(dep, value);
+        }
+
         let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
         let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
           deserialize_section(&mut json, "npm")?;
@@ -338,52 +312,54 @@ impl LockfileContent {
             );
           }
         }
-        let mut jsr: BTreeMap<String, JsrPackageInfo> = Default::default();
+        let mut jsr: BTreeMap<PackageNv, JsrPackageInfo> = Default::default();
         {
-          let raw_jsr: BTreeMap<String, RawJsrPackageInfo> =
+          let raw_jsr: BTreeMap<PackageNv, RawJsrPackageInfo> =
             deserialize_section(&mut json, "jsr")?;
           if !raw_jsr.is_empty() {
             // collect the specifier information
-            let mut to_resolved_specifiers: HashMap<&str, Option<&str>> =
-              HashMap::with_capacity(specifiers.len() * 2);
-            // first insert the specifiers that should be left alone
-            for specifier in specifiers.keys() {
-              to_resolved_specifiers.insert(specifier, None);
+            let mut to_resolved_specifiers: HashMap<
+              Cow<JsrDepPackageReq>,
+              &JsrDepPackageReq,
+            > = HashMap::with_capacity(specifiers.len() * 2);
+            // first insert the specifiers with the version reqs
+            for dep in specifiers.keys() {
+              to_resolved_specifiers.insert(Cow::Borrowed(dep), dep);
             }
-            // then insert the mapping specifiers
-            for specifier in specifiers.keys() {
-              let Some((name, req)) = split_pkg_req(specifier) else {
-                return Err(DeserializationError::InvalidPackageSpecifier(
-                  specifier.to_string(),
-                ));
+            // then insert the specifiers without version reqs
+            for dep in specifiers.keys() {
+              let Ok(dep_no_version_req) = JsrDepPackageReq::from_str(
+                &format!("{}{}", dep.kind.scheme_with_colon(), dep.req.name),
+              ) else {
+                continue; // should never happen
               };
-              if req.is_some() {
-                let entry = to_resolved_specifiers.entry(name);
-                // if an entry is occupied that means there's multiple specifiers
-                // for the same name, such as one without a req, so ignore inserting
-                // here
-                if let std::collections::hash_map::Entry::Vacant(entry) = entry
-                {
-                  entry.insert(Some(specifier));
-                }
+              let entry =
+                to_resolved_specifiers.entry(Cow::Owned(dep_no_version_req));
+              // if an entry is occupied that means there's multiple specifiers
+              // for the same name, such as one without a req, so ignore inserting
+              // here
+              if let HashMapEntry::Vacant(entry) = entry {
+                entry.insert(dep);
               }
             }
 
             // now go through the dependencies mapping to the new ones
             for (key, value) in raw_jsr {
-              let mut dependencies = BTreeSet::new();
+              let mut dependencies =
+                HashSet::with_capacity(value.dependencies.len());
               for dep in value.dependencies {
-                let Some(maybe_specifier) =
-                  to_resolved_specifiers.get(dep.as_str())
+                let raw_dep = dep;
+                let Ok(dep) = JsrDepPackageReq::from_str(&raw_dep) else {
+                  continue; // should never happen
+                };
+                let Some(resolved_dep) = to_resolved_specifiers.get(&dep)
                 else {
                   return Err(DeserializationError::InvalidJsrDependency {
-                    dependency: dep,
-                    package: key.to_string(),
+                    dependency: raw_dep,
+                    package: key,
                   });
                 };
-                dependencies.insert(
-                  maybe_specifier.map(|s| s.to_string()).unwrap_or(dep),
-                );
+                dependencies.insert((*resolved_dep).clone());
               }
               jsr.insert(
                 key,
@@ -397,8 +373,8 @@ impl LockfileContent {
         }
 
         PackagesContent {
-          jsr,
           specifiers,
+          jsr,
           npm,
         }
       },
@@ -406,16 +382,6 @@ impl LockfileContent {
       remote: deserialize_section(&mut json, "remote")?,
       workspace: deserialize_section(&mut json, "workspace")?,
     })
-  }
-
-  fn empty_with_version(version: String) -> Self {
-    Self {
-      version,
-      packages: Default::default(),
-      redirects: Default::default(),
-      remote: BTreeMap::new(),
-      workspace: Default::default(),
-    }
   }
 
   pub fn is_empty(&self) -> bool {
@@ -432,7 +398,7 @@ pub struct NewLockfileOptions<'a> {
   pub overwrite: bool,
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Lockfile {
   pub overwrite: bool,
   pub has_content_changed: bool,
@@ -445,12 +411,12 @@ impl Lockfile {
     Lockfile {
       overwrite,
       has_content_changed: false,
-      content: LockfileContent::empty_with_version("4".to_string()),
+      content: LockfileContent::default(),
       filename,
     }
   }
 
-  pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, LockfileError> {
+  pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, Box<LockfileError>> {
     fn load_content(
       content: &str,
     ) -> Result<LockfileContent, LockfileErrorReason> {
@@ -485,15 +451,15 @@ impl Lockfile {
         overwrite: opts.overwrite,
         filename: opts.file_path,
         has_content_changed: false,
-        content: LockfileContent::empty_with_version("4".to_string()),
+        content: LockfileContent::default(),
       });
     }
 
     if opts.content.trim().is_empty() {
-      return Err(LockfileError {
+      return Err(Box::new(LockfileError {
         file_path: opts.file_path.display().to_string(),
         reason: LockfileErrorReason::Empty,
-      });
+      }));
     }
 
     let content =
@@ -522,7 +488,7 @@ impl Lockfile {
   ) {
     fn update_workspace_member(
       has_content_changed: &mut bool,
-      removed_deps: &mut HashSet<String>,
+      removed_deps: &mut HashSet<JsrDepPackageReq>,
       current: &mut WorkspaceMemberConfigContent,
       new: WorkspaceMemberConfig,
     ) {
@@ -611,7 +577,7 @@ impl Lockfile {
       .content
       .workspace
       .get_all_dep_reqs()
-      .map(|s| s.to_string())
+      .cloned()
       .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
 
@@ -667,7 +633,7 @@ impl Lockfile {
       let mut graph = LockfilePackageGraph::from_lockfile(
         packages,
         remotes,
-        old_deps.iter().map(|dep| dep.as_str()),
+        old_deps.into_iter(),
       );
 
       // remove the packages
@@ -714,11 +680,11 @@ impl Lockfile {
   pub fn insert_remote(&mut self, specifier: String, hash: String) {
     let entry = self.content.remote.entry(specifier);
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(hash);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if entry.get() != &hash {
           entry.insert(hash);
           self.has_content_changed = true;
@@ -744,11 +710,11 @@ impl Lockfile {
       dependencies,
     };
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(package_info);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if *entry.get() != package_info {
           entry.insert(package_info);
           self.has_content_changed = true;
@@ -760,20 +726,16 @@ impl Lockfile {
   /// Inserts a package specifier into the lockfile.
   pub fn insert_package_specifier(
     &mut self,
-    serialized_package_req: String,
+    package_req: JsrDepPackageReq,
     serialized_package_id: String,
   ) {
-    let entry = self
-      .content
-      .packages
-      .specifiers
-      .entry(serialized_package_req);
+    let entry = self.content.packages.specifiers.entry(package_req);
     match entry {
-      Entry::Vacant(entry) => {
+      HashMapEntry::Vacant(entry) => {
         entry.insert(serialized_package_id);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      HashMapEntry::Occupied(mut entry) => {
         if *entry.get() != serialized_package_id {
           entry.insert(serialized_package_id);
           self.has_content_changed = true;
@@ -787,17 +749,17 @@ impl Lockfile {
   ///
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
-  pub fn insert_package(&mut self, name: String, integrity: String) {
+  pub fn insert_package(&mut self, name: PackageNv, integrity: String) {
     let entry = self.content.packages.jsr.entry(name);
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(JsrPackageInfo {
           integrity,
           dependencies: Default::default(),
         });
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if *entry.get().integrity != integrity {
           entry.get_mut().integrity = integrity;
           self.has_content_changed = true;
@@ -813,10 +775,10 @@ impl Lockfile {
   /// adding them here as unresolved dependencies will be ignored.
   pub fn add_package_deps(
     &mut self,
-    name: &str,
-    deps: impl Iterator<Item = String>,
+    nv: &PackageNv,
+    deps: impl Iterator<Item = JsrDepPackageReq>,
   ) {
-    if let Some(pkg) = self.content.packages.jsr.get_mut(name) {
+    if let Some(pkg) = self.content.packages.jsr.get_mut(nv) {
       let start_count = pkg.dependencies.len();
       // don't include unresolved dependendencies
       let resolved_deps =
@@ -836,11 +798,11 @@ impl Lockfile {
 
     let entry = self.content.redirects.entry(from);
     match entry {
-      Entry::Vacant(entry) => {
+      BTreeMapEntry::Vacant(entry) => {
         entry.insert(to);
         self.has_content_changed = true;
       }
-      Entry::Occupied(mut entry) => {
+      BTreeMapEntry::Occupied(mut entry) => {
         if *entry.get() != to {
           entry.insert(to);
           self.has_content_changed = true;
@@ -853,6 +815,7 @@ impl Lockfile {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use deno_semver::package::PackageReq;
   use pretty_assertions::assert_eq;
 
   const LOCKFILE_JSON: &str = r#"
@@ -874,7 +837,7 @@ mod tests {
   }
 }"#;
 
-  fn setup(overwrite: bool) -> Result<Lockfile, LockfileError> {
+  fn setup(overwrite: bool) -> Result<Lockfile, Box<LockfileError>> {
     let file_path =
       std::env::current_dir().unwrap().join("valid_lockfile.json");
     Lockfile::new(NewLockfileOptions {
@@ -1173,17 +1136,17 @@ mod tests {
     })
     .unwrap();
     lockfile.insert_package_specifier(
-      "jsr:path".to_string(),
+      JsrDepPackageReq::jsr(PackageReq::from_str("path").unwrap()),
       "jsr:@std/path@0.75.0".to_string(),
     );
     assert!(!lockfile.has_content_changed);
     lockfile.insert_package_specifier(
-      "jsr:path".to_string(),
+      JsrDepPackageReq::jsr(PackageReq::from_str("path").unwrap()),
       "jsr:@std/path@0.75.1".to_string(),
     );
     assert!(lockfile.has_content_changed);
     lockfile.insert_package_specifier(
-      "jsr:@foo/bar@^2".to_string(),
+      JsrDepPackageReq::jsr(PackageReq::from_str("@foo/bar@^2").unwrap()),
       "jsr:@foo/bar@2.1.2".to_string(),
     );
     assert_eq!(
@@ -1212,7 +1175,6 @@ mod tests {
       overwrite: false,
     })
     .unwrap();
-    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.remote.len(), 2);
   }
 
@@ -1247,13 +1209,12 @@ mod tests {
       overwrite: false,
     })
     .unwrap();
-    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.packages.npm.len(), 2);
     assert_eq!(
       lockfile.content.packages.specifiers,
-      BTreeMap::from([(
-        "npm:nanoid".to_string(),
-        "npm:nanoid@3.3.4".to_string()
+      HashMap::from([(
+        JsrDepPackageReq::npm(PackageReq::from_str("nanoid").unwrap()),
+        "3.3.4".to_string()
       )])
     );
     assert_eq!(lockfile.content.remote.len(), 2);
@@ -1273,30 +1234,40 @@ mod tests {
     })
     .unwrap();
 
-    lockfile
-      .insert_package_specifier("dep2".to_string(), "dep2@1.0.0".to_string());
+    lockfile.insert_package_specifier(
+      JsrDepPackageReq::jsr(PackageReq::from_str("dep2").unwrap()),
+      "dep2@1.0.0".to_string(),
+    );
     assert!(lockfile.has_content_changed);
     lockfile.has_content_changed = false;
 
     assert!(!lockfile.has_content_changed);
-    lockfile.insert_package("dep".to_string(), "integrity".to_string());
+    let dep_nv = PackageNv::from_str("dep@1.0.0").unwrap();
+    lockfile.insert_package(dep_nv.clone(), "integrity".to_string());
     // has changed even though it was empty
     assert!(lockfile.has_content_changed);
 
     // now try inserting the same package
     lockfile.has_content_changed = false;
-    lockfile.insert_package("dep".to_string(), "integrity".to_string());
+    lockfile.insert_package(dep_nv.clone(), "integrity".to_string());
     assert!(!lockfile.has_content_changed);
 
     // now with new deps
-    lockfile.add_package_deps("dep", vec!["dep2".to_string()].into_iter());
+    lockfile.add_package_deps(
+      &dep_nv,
+      vec![JsrDepPackageReq::jsr(PackageReq::from_str("dep2").unwrap())]
+        .into_iter(),
+    );
     assert!(lockfile.has_content_changed);
     lockfile.has_content_changed = false;
 
     // now insert a dep that doesn't have a package specifier
     lockfile.add_package_deps(
-      "dep",
-      vec!["dep-non-resolved".to_string()].into_iter(),
+      &dep_nv,
+      vec![JsrDepPackageReq::jsr(
+        PackageReq::from_str("dep-non-resolved").unwrap(),
+      )]
+      .into_iter(),
     );
     assert!(!lockfile.has_content_changed);
   }
