@@ -219,7 +219,13 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
 
 fn verify_packages_content(packages: &PackagesContent) {
   // verify the specifiers
-  for id in packages.specifiers.values() {
+  for (req, id_suffix_or_nv) in &packages.specifiers {
+    let id = format!(
+      "{}{}@{}",
+      req.kind.scheme_with_colon(),
+      req.req.name,
+      id_suffix_or_nv
+    );
     if let Some(npm_id) = id.strip_prefix("npm:") {
       assert!(packages.npm.contains_key(npm_id), "Missing: {}", id);
     } else if let Some(jsr_id) = id.strip_prefix("jsr:") {

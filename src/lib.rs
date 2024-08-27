@@ -180,9 +180,8 @@ impl WorkspaceConfigContent {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct LockfileContent {
-  pub(crate) version: String,
   pub packages: PackagesContent,
   pub redirects: BTreeMap<String, String>,
   /// Mapping between URLs and their checksums for "http:" and "https:" deps
@@ -202,21 +201,6 @@ impl LockfileContent {
       let name = &value[..at_index];
       let version = &value[at_index + 1..];
       Some((name, version))
-    }
-
-    fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
-      if value.len() < 5 {
-        return None;
-      }
-      // 5 is length of `jsr:@`/`npm:@`
-      let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
-        // no version requirement
-        // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
-        return Some((value, None));
-      };
-      let name = &value[..at_index];
-      let version = &value[at_index + 1..];
-      Some((name, Some(version)))
     }
 
     #[derive(Debug, Deserialize)]
@@ -247,19 +231,10 @@ impl LockfileContent {
     use serde_json::Value;
 
     let Value::Object(mut json) = json else {
-      return Ok(Self::empty_with_version("4".to_string()));
+      return Ok(Self::default());
     };
 
-    let version = json
-      .remove("version")
-      .and_then(|v| match v {
-        Value::String(v) => Some(v),
-        _ => None,
-      })
-      .unwrap_or_else(|| "4".to_string());
-
     Ok(LockfileContent {
-      version,
       packages: {
         let deserialized_specifiers: BTreeMap<String, String> =
           deserialize_section(&mut json, "specifiers")?;
@@ -407,16 +382,6 @@ impl LockfileContent {
     })
   }
 
-  fn empty_with_version(version: String) -> Self {
-    Self {
-      version,
-      packages: Default::default(),
-      redirects: Default::default(),
-      remote: BTreeMap::new(),
-      workspace: Default::default(),
-    }
-  }
-
   pub fn is_empty(&self) -> bool {
     self.packages.is_empty()
       && self.redirects.is_empty()
@@ -444,7 +409,7 @@ impl Lockfile {
     Lockfile {
       overwrite,
       has_content_changed: false,
-      content: LockfileContent::empty_with_version("4".to_string()),
+      content: LockfileContent::default(),
       filename,
     }
   }
@@ -484,7 +449,7 @@ impl Lockfile {
         overwrite: opts.overwrite,
         filename: opts.file_path,
         has_content_changed: false,
-        content: LockfileContent::empty_with_version("4".to_string()),
+        content: LockfileContent::default(),
       });
     }
 
@@ -1208,7 +1173,6 @@ mod tests {
       overwrite: false,
     })
     .unwrap();
-    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.remote.len(), 2);
   }
 
@@ -1243,13 +1207,12 @@ mod tests {
       overwrite: false,
     })
     .unwrap();
-    assert_eq!(lockfile.content.version, "4");
     assert_eq!(lockfile.content.packages.npm.len(), 2);
     assert_eq!(
       lockfile.content.packages.specifiers,
       HashMap::from([(
         JsrDepPackageReq::npm(PackageReq::from_str("nanoid").unwrap()),
-        "npm:nanoid@3.3.4".to_string()
+        "3.3.4".to_string()
       )])
     );
     assert_eq!(lockfile.content.remote.len(), 2);
