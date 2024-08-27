@@ -43,7 +43,7 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@dsherret/dax": "0.0.1",
+    "jsr:@dsherret/dax@*": "0.0.1",
     "jsr:@dsherret/which@0.0.1": "0.0.1"
   },
   "jsr": {
@@ -84,7 +84,7 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@dsherret/dax": "0.0.1",
+    "jsr:@dsherret/dax@*": "0.0.1",
     "jsr:@dsherret/which@0.0.1": "0.0.1"
   },
   "jsr": {

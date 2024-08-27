@@ -167,7 +167,7 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@dsherret/dax": "0.0.1",
+    "jsr:@dsherret/dax@*": "0.0.1",
     "jsr:@dsherret/which@0.0.1": "0.0.1",
     "jsr:@std/assert@0.210": "0.210.0",
     "jsr:@std/bytes@0.210": "0.210.0",
@@ -179,8 +179,8 @@
     "jsr:@std/path@0.210.0": "0.210.0",
     "jsr:@std/streams@0.210": "0.210.0",
     "jsr:@std/streams@0.210.0": "0.210.0",
-    "jsr:@zome_unreferenced/package": "0.1.0",
-    "jsr:@zome_unreferenced/package_b": "0.1.0"
+    "jsr:@zome_unreferenced/package@*": "0.1.0",
+    "jsr:@zome_unreferenced/package_b@*": "0.1.0"
   },
   "jsr": {
     "@dsherret/dax@0.0.1": {

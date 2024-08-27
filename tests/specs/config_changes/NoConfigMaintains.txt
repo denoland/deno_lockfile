@@ -206,11 +206,11 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@scope/package_a": "0.0.1",
-    "jsr:@scope/package_b": "0.0.1",
-    "jsr:@scope/package_c": "0.0.1",
-    "jsr:@scope/package_orphan": "0.0.1",
-    "npm:ts-morph": "21.0.1"
+    "jsr:@scope/package_a@*": "0.0.1",
+    "jsr:@scope/package_b@*": "0.0.1",
+    "jsr:@scope/package_c@*": "0.0.1",
+    "jsr:@scope/package_orphan@*": "0.0.1",
+    "npm:ts-morph@*": "21.0.1"
   },
   "jsr": {
     "@scope/package_a@0.0.1": {

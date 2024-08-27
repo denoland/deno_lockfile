@@ -1151,8 +1151,8 @@ mod tests {
       r#"{
   "version": "4",
   "specifiers": {
-    "jsr:@foo/bar@^2": "jsr:@foo/bar@2.1.2",
-    "jsr:path": "jsr:@std/path@0.75.1"
+    "jsr:@foo/bar@2": "jsr:@foo/bar@2.1.2",
+    "jsr:path@*": "jsr:@std/path@0.75.1"
   }
 }
 "#,

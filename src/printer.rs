@@ -275,7 +275,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   let mut specifiers = BTreeMap::new();
   for (key, value) in &content.packages.specifiers {
     // insert a string to ensure proper sorting
-    specifiers.insert(key.to_string(), value);
+    specifiers.insert(jsr_dep_pkg_req_to_string(key), value);
   }
 
   let lockfile = LockfileV4 {
