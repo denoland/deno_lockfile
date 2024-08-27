@@ -808,6 +808,9 @@ impl Lockfile {
 
   /// Adds package dependencies of a JSR package. This is only used to track
   /// when packages can be removed from the lockfile.
+  ///
+  /// Note: You MUST insert the package specifiers for any dependencies before
+  /// adding them here as unresolved dependencies will be ignored.
   pub fn add_package_deps(
     &mut self,
     name: &str,
@@ -815,7 +818,10 @@ impl Lockfile {
   ) {
     if let Some(pkg) = self.content.packages.jsr.get_mut(name) {
       let start_count = pkg.dependencies.len();
-      pkg.dependencies.extend(deps);
+      // don't include unresolved dependendencies
+      let resolved_deps =
+        deps.filter(|dep| self.content.packages.specifiers.contains_key(dep));
+      pkg.dependencies.extend(resolved_deps);
       let end_count = pkg.dependencies.len();
       if start_count != end_count {
         self.has_content_changed = true;
@@ -1267,6 +1273,11 @@ mod tests {
     })
     .unwrap();
 
+    lockfile
+      .insert_package_specifier("dep2".to_string(), "dep2@1.0.0".to_string());
+    assert!(lockfile.has_content_changed);
+    lockfile.has_content_changed = false;
+
     assert!(!lockfile.has_content_changed);
     lockfile.insert_package("dep".to_string(), "integrity".to_string());
     // has changed even though it was empty
@@ -1280,6 +1291,14 @@ mod tests {
     // now with new deps
     lockfile.add_package_deps("dep", vec!["dep2".to_string()].into_iter());
     assert!(lockfile.has_content_changed);
+    lockfile.has_content_changed = false;
+
+    // now insert a dep that doesn't have a package specifier
+    lockfile.add_package_deps(
+      "dep",
+      vec!["dep-non-resolved".to_string()].into_iter(),
+    );
+    assert!(!lockfile.has_content_changed);
   }
 
   #[test]
