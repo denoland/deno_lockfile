@@ -5,6 +5,9 @@
     "specifiers": {
       "jsr:@std/assert@^0.218.2": "jsr:@std/assert@0.218.2",
       "jsr:@std/assert@^0.218": "jsr:@std/assert@0.218.2",
+      "jsr:@std/assert@0.218": "jsr:@std/assert@0.218.2",
+      "jsr:@std/assert@~0.218": "jsr:@std/assert@0.218.2",
+      "jsr:@std/assert@~0.218.2": "jsr:@std/assert@0.218.2",
       "jsr:@std/path@^0.218.2": "jsr:@std/path@0.218.2"
     },
     "jsr": {
@@ -32,9 +35,9 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@std/assert@^0.218": "0.218.2",
-    "jsr:@std/assert@^0.218.2": "0.218.2",
-    "jsr:@std/path@^0.218.2": "0.218.2"
+    "jsr:@std/assert@0.218": "0.218.2",
+    "jsr:@std/assert@~0.218.2": "0.218.2",
+    "jsr:@std/path@~0.218.2": "0.218.2"
   },
   "jsr": {
     "@std/assert@0.218.2": {
@@ -43,14 +46,14 @@
     "@std/path@0.218.2": {
       "integrity": "abcd",
       "dependencies": [
-        "jsr:@std/assert@^0.218"
+        "jsr:@std/assert@0.218"
       ]
     }
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/assert@^0.218.2",
-      "jsr:@std/path@^0.218.2"
+      "jsr:@std/assert@~0.218.2",
+      "jsr:@std/path@~0.218.2"
     ]
   }
 }

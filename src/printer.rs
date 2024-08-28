@@ -29,15 +29,28 @@ struct SerializedNpmPkg<'a> {
   dependencies: Vec<Cow<'a, str>>,
 }
 
-#[derive(Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SerializedLockfilePackageJsonContent<'a> {
-  #[serde(default)]
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  pub dependencies: Vec<&'a JsrDepPackageReq>,
+// WARNING: It's important to implement Ord/PartialOrd on the final
+// normalized string so that sorting works according to the final
+// output and so that's why this is used rather than JsrDepPackageReq
+// directly.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+struct SerializedJsrDepPackageReq(String);
+
+impl SerializedJsrDepPackageReq {
+  pub fn new(dep_req: &JsrDepPackageReq) -> Self {
+    Self(dep_req.to_string_normalized())
+  }
 }
 
-impl<'a> SerializedLockfilePackageJsonContent<'a> {
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializedLockfilePackageJsonContent {
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub dependencies: Vec<SerializedJsrDepPackageReq>,
+}
+
+impl SerializedLockfilePackageJsonContent {
   pub fn is_empty(&self) -> bool {
     self.dependencies.is_empty()
   }
@@ -45,18 +58,18 @@ impl<'a> SerializedLockfilePackageJsonContent<'a> {
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SerializedWorkspaceMemberConfigContent<'a> {
+struct SerializedWorkspaceMemberConfigContent {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[serde(default)]
-  pub dependencies: Vec<&'a JsrDepPackageReq>,
+  pub dependencies: Vec<SerializedJsrDepPackageReq>,
   #[serde(
     skip_serializing_if = "SerializedLockfilePackageJsonContent::is_empty"
   )]
   #[serde(default)]
-  pub package_json: SerializedLockfilePackageJsonContent<'a>,
+  pub package_json: SerializedLockfilePackageJsonContent,
 }
 
-impl<'a> SerializedWorkspaceMemberConfigContent<'a> {
+impl SerializedWorkspaceMemberConfigContent {
   pub fn is_empty(&self) -> bool {
     self.dependencies.is_empty() && self.package_json.is_empty()
   }
@@ -66,10 +79,10 @@ impl<'a> SerializedWorkspaceMemberConfigContent<'a> {
 #[serde(rename_all = "camelCase")]
 struct SerializedWorkspaceConfigContent<'a> {
   #[serde(default, flatten)]
-  pub root: SerializedWorkspaceMemberConfigContent<'a>,
+  pub root: SerializedWorkspaceMemberConfigContent,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent<'a>>,
+  pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
 }
 
 impl<'a> SerializedWorkspaceConfigContent<'a> {
@@ -83,7 +96,7 @@ struct LockfileV4<'a> {
   // order these based on auditability
   version: &'static str,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  specifiers: BTreeMap<String, &'a String>,
+  specifiers: BTreeMap<SerializedJsrDepPackageReq, &'a String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   jsr: BTreeMap<&'a PackageNv, SerializedJsrPkg<'a>>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -137,7 +150,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
                   if has_single_specifier {
                     format!("{}{}", dep.kind.scheme_with_colon(), dep.req.name)
                   } else {
-                    dep.to_string()
+                    dep.to_string_normalized()
                   }
                 })
                 .collect::<Vec<_>>();
@@ -211,7 +224,11 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_pkg_json_content(
     content: &LockfilePackageJsonContent,
   ) -> SerializedLockfilePackageJsonContent {
-    let mut dependencies = content.dependencies.iter().collect::<Vec<_>>();
+    let mut dependencies = content
+      .dependencies
+      .iter()
+      .map(SerializedJsrDepPackageReq::new)
+      .collect::<Vec<_>>();
     dependencies.sort();
     SerializedLockfilePackageJsonContent { dependencies }
   }
@@ -221,7 +238,11 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   ) -> SerializedWorkspaceMemberConfigContent {
     SerializedWorkspaceMemberConfigContent {
       dependencies: {
-        let mut member = member.dependencies.iter().collect::<Vec<_>>();
+        let mut member = member
+          .dependencies
+          .iter()
+          .map(SerializedJsrDepPackageReq::new)
+          .collect::<Vec<_>>();
         member.sort();
         member
       },
@@ -246,7 +267,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   let mut specifiers = BTreeMap::new();
   for (key, value) in &content.packages.specifiers {
     // insert a string to ensure proper sorting
-    specifiers.insert(key.to_string(), value);
+    specifiers.insert(SerializedJsrDepPackageReq::new(key), value);
   }
 
   let lockfile = LockfileV4 {

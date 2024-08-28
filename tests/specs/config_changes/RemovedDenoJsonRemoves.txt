@@ -211,8 +211,8 @@
 {
   "version": "4",
   "specifiers": {
-    "jsr:@scope/package_orphan": "0.0.1",
-    "npm:ts-morph": "21.0.1"
+    "jsr:@scope/package_orphan@*": "0.0.1",
+    "npm:ts-morph@*": "21.0.1"
   },
   "jsr": {
     "@scope/package_orphan@0.0.1": {
@@ -361,7 +361,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:ts-morph"
+        "npm:ts-morph@*"
       ]
     }
   }
