@@ -16,16 +16,16 @@ pub struct LockfileError {
 
 #[derive(Debug, Error)]
 pub enum LockfileErrorReason {
-  #[error("Lockfile was empty.")]
+  #[error("Lockfile was empty")]
   Empty,
-  #[error("Failed parsing. Lockfile may be corrupt.")]
+  #[error("Failed parsing. Lockfile may be corrupt")]
   ParseError(serde_json::Error),
-  #[error("Failed deserializing. Lockfile may be corrupt.")]
+  #[error("Failed deserializing. Lockfile may be corrupt")]
   DeserializationError(#[source] DeserializationError),
-  #[error("Unsupported lockfile version '{version}'. Try upgrading Deno or recreating the lockfile.")]
+  #[error("Unsupported lockfile version '{version}'. Try upgrading Deno or recreating the lockfile")]
   UnsupportedVersion { version: String },
   #[error(
-    "Failed upgrading lockfile to latest version. Lockfile may be corrupt."
+    "Failed upgrading lockfile to latest version. Lockfile may be corrupt"
   )]
   TransformError(#[source] TransformError),
 }

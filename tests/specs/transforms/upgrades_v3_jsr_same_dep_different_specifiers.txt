@@ -5,6 +5,9 @@
     "specifiers": {
       "jsr:@std/assert@^0.218.2": "jsr:@std/assert@0.218.2",
       "jsr:@std/assert@^0.218": "jsr:@std/assert@0.218.2",
+      "jsr:@std/assert@0.218": "jsr:@std/assert@0.218.2",
+      "jsr:@std/assert@~0.218": "jsr:@std/assert@0.218.2",
+      "jsr:@std/assert@~0.218.2": "jsr:@std/assert@0.218.2",
       "jsr:@std/path@^0.218.2": "jsr:@std/path@0.218.2"
     },
     "jsr": {
