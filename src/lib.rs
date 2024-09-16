@@ -243,7 +243,7 @@ impl LockfileContent {
         let mut specifiers =
           HashMap::with_capacity(deserialized_specifiers.len());
         for (key, value) in deserialized_specifiers {
-          let dep = JsrDepPackageReq::from_str(&key)?;
+          let dep = JsrDepPackageReq::from_str_loose(&key)?;
           specifiers.insert(dep, value);
         }
 
