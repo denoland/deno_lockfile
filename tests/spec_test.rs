@@ -12,6 +12,7 @@ use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
+use deno_semver::StackString;
 use file_test_runner::collect_and_run_tests;
 use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 use file_test_runner::collection::CollectOptions;
@@ -76,7 +77,7 @@ fn config_changes_test(test: &CollectedTest) {
     root: WorkspaceMemberConfigContent,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    members: BTreeMap<String, WorkspaceMemberConfigContent>,
+    members: BTreeMap<StackString, WorkspaceMemberConfigContent>,
   }
 
   impl WorkspaceConfigContent {

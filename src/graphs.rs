@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
+use deno_semver::StackString;
 use deno_semver::Version;
 
 use crate::NpmPackageInfo;
@@ -24,11 +25,11 @@ enum LockfilePkgId {
 struct LockfileJsrPkgNv(PackageNv);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct LockfileNpmPackageId(String);
+struct LockfileNpmPackageId(StackString);
 
 impl LockfileNpmPackageId {
   pub fn parts(&self) -> impl Iterator<Item = &str> {
-    let package_id = &self.0;
+    let package_id = self.0.as_str();
     package_id.split('_').filter(|s| !s.is_empty())
   }
 }
@@ -73,7 +74,7 @@ struct LockfileNpmGraphPackage {
   /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
   integrity: String,
-  dependencies: BTreeMap<String, LockfileNpmPackageId>,
+  dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
 }
 
 #[derive(Debug)]
@@ -119,7 +120,14 @@ impl LockfilePackageGraph {
           root_packages.insert(LockfilePkgReq::Jsr(dep.req), nv);
         }
         deno_semver::package::PackageKind::Npm => {
-          let id = LockfileNpmPackageId(format!("{}@{}", dep.req.name, value));
+          let id = LockfileNpmPackageId({
+            let mut text =
+              StackString::with_capacity(dep.req.name.len() + 1 + value.len());
+            text.push_str(&dep.req.name);
+            text.push('@');
+            text.push_str(&value);
+            text
+          });
           root_packages
             .insert(LockfilePkgReq::Npm(dep.req), LockfilePkgId::Npm(id));
         }
@@ -303,14 +311,15 @@ impl LockfilePackageGraph {
     *remotes = self.remotes;
     for (req, id) in self.root_packages {
       let value = match &id {
-        LockfilePkgId::Jsr(nv) => nv.0.version.to_string(),
+        LockfilePkgId::Jsr(nv) => nv.0.version.to_string_ecow(),
         LockfilePkgId::Npm(id) => id
           .0
-          .strip_prefix(&req.req().name)
+          .as_str()
+          .strip_prefix(req.req().name.as_str())
           .unwrap()
           .strip_prefix("@")
           .unwrap()
-          .to_string(),
+          .into(),
       };
       packages.specifiers.insert(req.into_jsr_dep(), value);
     }
