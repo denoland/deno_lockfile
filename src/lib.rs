@@ -211,14 +211,14 @@ impl LockfileContent {
     struct RawNpmPackageInfo {
       pub integrity: String,
       #[serde(default)]
-      pub dependencies: Vec<String>,
+      pub dependencies: Vec<StackString>,
     }
 
     #[derive(Debug, Deserialize)]
     struct RawJsrPackageInfo {
       pub integrity: String,
       #[serde(default)]
-      pub dependencies: Vec<String>,
+      pub dependencies: Vec<StackString>,
     }
 
     fn deserialize_section<T: DeserializeOwned + Default>(
@@ -254,15 +254,15 @@ impl LockfileContent {
           deserialize_section(&mut json, "npm")?;
         if !raw_npm.is_empty() {
           // collect the versions
-          let mut version_by_dep_name: HashMap<String, String> =
+          let mut version_by_dep_name: HashMap<StackString, StackString> =
             HashMap::with_capacity(raw_npm.len());
           for id in raw_npm.keys() {
             let Some((name, version)) = extract_nv_from_id(id) else {
               return Err(DeserializationError::InvalidNpmPackageId(
-                id.to_string(),
+                id.clone(),
               ));
             };
-            version_by_dep_name.insert(name.to_string(), version.to_string());
+            version_by_dep_name.insert(name.into(), version.into());
           }
 
           // now go through and create the resolved npm package information
@@ -279,25 +279,24 @@ impl LockfileContent {
                   }
                 },
               };
-              let (key, package_name, version) =
-                match right.strip_prefix("npm:") {
-                  Some(right) => {
-                    // ex. key@npm:package-a@version
-                    match extract_nv_from_id(right) {
-                      Some((package_name, version)) => {
-                        (left, package_name, version)
-                      }
-                      None => {
-                        return Err(
-                          DeserializationError::InvalidNpmPackageDependency(
-                            dep.to_string(),
-                          ),
-                        );
-                      }
+              let (key, package_name, version) = match right
+                .strip_prefix("npm:")
+              {
+                Some(right) => {
+                  // ex. key@npm:package-a@version
+                  match extract_nv_from_id(right) {
+                    Some((package_name, version)) => {
+                      (left, package_name, version)
+                    }
+                    None => {
+                      return Err(
+                        DeserializationError::InvalidNpmPackageDependency(dep),
+                      );
                     }
                   }
-                  None => (left, left, right),
-                };
+                }
+                None => (left, left, right),
+              };
               dependencies.insert(key.into(), {
                 let mut text = StackString::with_capacity(
                   package_name.len() + 1 + version.len(),
