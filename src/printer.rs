@@ -21,7 +21,7 @@ use crate::WorkspaceMemberConfigContent;
 struct SerializedJsrPkg<'a> {
   integrity: &'a str,
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  dependencies: Vec<String>,
+  dependencies: Vec<StackString>,
 }
 
 #[derive(Serialize)]
@@ -36,7 +36,7 @@ struct SerializedNpmPkg<'a> {
 // output and so that's why this is used rather than JsrDepPackageReq
 // directly.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-struct SerializedJsrDepPackageReq(String);
+struct SerializedJsrDepPackageReq(StackString);
 
 impl SerializedJsrDepPackageReq {
   pub fn new(dep_req: &JsrDepPackageReq) -> Self {
@@ -150,7 +150,12 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
                     .map(|had_multiple| !had_multiple)
                     .unwrap_or(false);
                   if has_single_specifier {
-                    format!("{}{}", dep.kind.scheme_with_colon(), dep.req.name)
+                    let mut stack_string = StackString::with_capacity(
+                      dep.kind.scheme_with_colon().len() + dep.req.name.len(),
+                    );
+                    stack_string.push_str(dep.kind.scheme_with_colon());
+                    stack_string.push_str(dep.req.name.as_str());
+                    stack_string
                   } else {
                     dep.to_string_normalized()
                   }
