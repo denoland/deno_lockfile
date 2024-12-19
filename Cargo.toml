@@ -24,4 +24,6 @@ file_test_runner = "0.7.2"
 pretty_assertions = "1.4.0"
 
 [patch.crates-io]
-deno_semver = { git = "https://github.com/dsherret/deno_semver.git", branch = "perf_stack_strings" }
+# deno_semver = { git = "https://github.com/dsherret/deno_semver.git", branch = "perf_stack_strings" }
+deno_semver = { path = "../deno_semver" }
+capacity_builder = { path = "../capacity_builder" }

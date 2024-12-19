@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
+use deno_semver::SmallStackString;
 use deno_semver::StackString;
 use deno_semver::Version;
 
@@ -311,7 +312,9 @@ impl LockfilePackageGraph {
     *remotes = self.remotes;
     for (req, id) in self.root_packages {
       let value = match &id {
-        LockfilePkgId::Jsr(nv) => nv.0.version.to_string_ecow(),
+        LockfilePkgId::Jsr(nv) => {
+          nv.0.version.to_custom_string::<SmallStackString>()
+        }
         LockfilePkgId::Npm(id) => id
           .0
           .as_str()
