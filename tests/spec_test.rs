@@ -77,7 +77,7 @@ fn config_changes_test(test: &CollectedTest) {
     root: WorkspaceMemberConfigContent,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    members: BTreeMap<StackString, WorkspaceMemberConfigContent>,
+    members: BTreeMap<String, WorkspaceMemberConfigContent>,
   }
 
   impl WorkspaceConfigContent {

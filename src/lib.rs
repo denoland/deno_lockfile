@@ -50,7 +50,7 @@ pub struct SetWorkspaceConfigOptions {
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
-  pub members: HashMap<StackString, WorkspaceMemberConfig>,
+  pub members: HashMap<String, WorkspaceMemberConfig>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -168,7 +168,7 @@ pub(crate) struct WorkspaceConfigContent {
   #[serde(default, flatten)]
   pub root: WorkspaceMemberConfigContent,
   #[serde(default)]
-  pub members: HashMap<StackString, WorkspaceMemberConfigContent>,
+  pub members: HashMap<String, WorkspaceMemberConfigContent>,
 }
 
 impl WorkspaceConfigContent {
