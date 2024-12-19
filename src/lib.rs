@@ -16,6 +16,8 @@ use std::path::PathBuf;
 
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
+use deno_semver::SmallStackString;
+use deno_semver::StackString;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -59,22 +61,22 @@ pub struct WorkspaceMemberConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpmPackageLockfileInfo {
-  pub serialized_id: String,
+  pub serialized_id: StackString,
   pub integrity: String,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpmPackageDependencyLockfileInfo {
-  pub name: String,
-  pub id: String,
+  pub name: StackString,
+  pub id: StackString,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct NpmPackageInfo {
   pub integrity: String,
   #[serde(default)]
-  pub dependencies: BTreeMap<String, String>,
+  pub dependencies: BTreeMap<StackString, StackString>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +96,7 @@ pub struct PackagesContent {
   ///   "npm:@ts-morph/common@^11": "11.0.0",
   ///   "npm:@ts-morph/common@^12": "12.0.0__some-peer-dep@1.0.0",
   /// }
-  pub specifiers: HashMap<JsrDepPackageReq, String>,
+  pub specifiers: HashMap<JsrDepPackageReq, SmallStackString>,
 
   /// Mapping between resolved jsr specifiers and their associated info, eg.
   /// {
@@ -117,7 +119,7 @@ pub struct PackagesContent {
   ///     }
   ///   }
   /// }
-  pub npm: BTreeMap<String, NpmPackageInfo>,
+  pub npm: BTreeMap<StackString, NpmPackageInfo>,
 }
 
 impl PackagesContent {
@@ -209,14 +211,14 @@ impl LockfileContent {
     struct RawNpmPackageInfo {
       pub integrity: String,
       #[serde(default)]
-      pub dependencies: Vec<String>,
+      pub dependencies: Vec<StackString>,
     }
 
     #[derive(Debug, Deserialize)]
     struct RawJsrPackageInfo {
       pub integrity: String,
       #[serde(default)]
-      pub dependencies: Vec<String>,
+      pub dependencies: Vec<StackString>,
     }
 
     fn deserialize_section<T: DeserializeOwned + Default>(
@@ -238,7 +240,7 @@ impl LockfileContent {
 
     Ok(LockfileContent {
       packages: {
-        let deserialized_specifiers: BTreeMap<String, String> =
+        let deserialized_specifiers: BTreeMap<StackString, SmallStackString> =
           deserialize_section(&mut json, "specifiers")?;
         let mut specifiers =
           HashMap::with_capacity(deserialized_specifiers.len());
@@ -247,25 +249,26 @@ impl LockfileContent {
           specifiers.insert(dep, value);
         }
 
-        let mut npm: BTreeMap<String, NpmPackageInfo> = Default::default();
-        let raw_npm: BTreeMap<String, RawNpmPackageInfo> =
+        let mut npm: BTreeMap<StackString, NpmPackageInfo> = Default::default();
+        let raw_npm: BTreeMap<StackString, RawNpmPackageInfo> =
           deserialize_section(&mut json, "npm")?;
         if !raw_npm.is_empty() {
           // collect the versions
-          let mut version_by_dep_name: HashMap<String, String> =
+          let mut version_by_dep_name: HashMap<StackString, StackString> =
             HashMap::with_capacity(raw_npm.len());
           for id in raw_npm.keys() {
             let Some((name, version)) = extract_nv_from_id(id) else {
               return Err(DeserializationError::InvalidNpmPackageId(
-                id.to_string(),
+                id.clone(),
               ));
             };
-            version_by_dep_name.insert(name.to_string(), version.to_string());
+            version_by_dep_name.insert(name.into(), version.into());
           }
 
           // now go through and create the resolved npm package information
           for (key, value) in raw_npm {
-            let mut dependencies = BTreeMap::new();
+            let mut dependencies: BTreeMap<StackString, StackString> =
+              BTreeMap::new();
             for dep in value.dependencies {
               let (left, right) = match extract_nv_from_id(&dep) {
                 Some((name, version)) => (name, version),
@@ -276,29 +279,33 @@ impl LockfileContent {
                   }
                 },
               };
-              let (key, package_name, version) =
-                match right.strip_prefix("npm:") {
-                  Some(right) => {
-                    // ex. key@npm:package-a@version
-                    match extract_nv_from_id(right) {
-                      Some((package_name, version)) => {
-                        (left, package_name, version)
-                      }
-                      None => {
-                        return Err(
-                          DeserializationError::InvalidNpmPackageDependency(
-                            dep.to_string(),
-                          ),
-                        );
-                      }
+              let (key, package_name, version) = match right
+                .strip_prefix("npm:")
+              {
+                Some(right) => {
+                  // ex. key@npm:package-a@version
+                  match extract_nv_from_id(right) {
+                    Some((package_name, version)) => {
+                      (left, package_name, version)
+                    }
+                    None => {
+                      return Err(
+                        DeserializationError::InvalidNpmPackageDependency(dep),
+                      );
                     }
                   }
-                  None => (left, left, right),
-                };
-              dependencies.insert(
-                key.to_string(),
-                format!("{}@{}", package_name, version),
-              );
+                }
+                None => (left, left, right),
+              };
+              dependencies.insert(key.into(), {
+                let mut text = StackString::with_capacity(
+                  package_name.len() + 1 + version.len(),
+                );
+                text.push_str(package_name);
+                text.push('@');
+                text.push_str(version);
+                text
+              });
             }
             npm.insert(
               key,
@@ -699,7 +706,7 @@ impl Lockfile {
       .dependencies
       .into_iter()
       .map(|dep| (dep.name, dep.id))
-      .collect::<BTreeMap<String, String>>();
+      .collect::<BTreeMap<StackString, StackString>>();
 
     let entry = self.content.packages.npm.entry(package_info.serialized_id);
     let package_info = NpmPackageInfo {
@@ -724,7 +731,7 @@ impl Lockfile {
   pub fn insert_package_specifier(
     &mut self,
     package_req: JsrDepPackageReq,
-    serialized_package_id: String,
+    serialized_package_id: SmallStackString,
   ) {
     let entry = self.content.packages.specifiers.entry(package_req);
     match entry {
@@ -1007,7 +1014,7 @@ mod tests {
 
     // already in lockfile
     let npm_package = NpmPackageLockfileInfo {
-      serialized_id: "nanoid@3.3.4".to_string(),
+      serialized_id: "nanoid@3.3.4".into(),
       integrity: "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string(),
       dependencies: vec![],
     };
@@ -1016,7 +1023,7 @@ mod tests {
 
     // insert package that exists already, but has slightly different properties
     let npm_package = NpmPackageLockfileInfo {
-      serialized_id: "picocolors@1.0.0".to_string(),
+      serialized_id: "picocolors@1.0.0".into(),
       integrity: "sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string(),
       dependencies: vec![],
     };
@@ -1025,7 +1032,7 @@ mod tests {
 
     lockfile.has_content_changed = false;
     let npm_package = NpmPackageLockfileInfo {
-      serialized_id: "source-map-js@1.0.2".to_string(),
+      serialized_id: "source-map-js@1.0.2".into(),
       integrity: "sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string(),
       dependencies: vec![],
     };
@@ -1039,7 +1046,7 @@ mod tests {
     assert!(!lockfile.has_content_changed);
 
     let npm_package = NpmPackageLockfileInfo {
-      serialized_id: "source-map-js@1.0.2".to_string(),
+      serialized_id: "source-map-js@1.0.2".into(),
       integrity: "sha512-foobar".to_string(),
       dependencies: vec![],
     };
@@ -1134,17 +1141,17 @@ mod tests {
     .unwrap();
     lockfile.insert_package_specifier(
       JsrDepPackageReq::jsr(PackageReq::from_str("path").unwrap()),
-      "jsr:@std/path@0.75.0".to_string(),
+      "jsr:@std/path@0.75.0".into(),
     );
     assert!(!lockfile.has_content_changed);
     lockfile.insert_package_specifier(
       JsrDepPackageReq::jsr(PackageReq::from_str("path").unwrap()),
-      "jsr:@std/path@0.75.1".to_string(),
+      "jsr:@std/path@0.75.1".into(),
     );
     assert!(lockfile.has_content_changed);
     lockfile.insert_package_specifier(
       JsrDepPackageReq::jsr(PackageReq::from_str("@foo/bar@^2").unwrap()),
-      "jsr:@foo/bar@2.1.2".to_string(),
+      "jsr:@foo/bar@2.1.2".into(),
     );
     assert_eq!(
       lockfile.as_json_string(),
@@ -1211,7 +1218,7 @@ mod tests {
       lockfile.content.packages.specifiers,
       HashMap::from([(
         JsrDepPackageReq::npm(PackageReq::from_str("nanoid").unwrap()),
-        "3.3.4".to_string()
+        "3.3.4".into()
       )])
     );
     assert_eq!(lockfile.content.remote.len(), 2);
@@ -1233,7 +1240,7 @@ mod tests {
 
     lockfile.insert_package_specifier(
       JsrDepPackageReq::jsr(PackageReq::from_str("dep2").unwrap()),
-      "dep2@1.0.0".to_string(),
+      "dep2@1.0.0".into(),
     );
     assert!(lockfile.has_content_changed);
     lockfile.has_content_changed = false;

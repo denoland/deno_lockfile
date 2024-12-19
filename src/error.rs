@@ -2,6 +2,7 @@
 
 use deno_semver::jsr::JsrDepPackageReqParseError;
 use deno_semver::package::PackageNv;
+use deno_semver::StackString;
 use thiserror::Error;
 
 use crate::transforms::TransformError;
@@ -41,20 +42,23 @@ pub enum DeserializationError {
   #[error("Invalid {0} section: {1:#}")]
   FailedDeserializing(&'static str, serde_json::Error),
   #[error("Invalid npm package '{0}'")]
-  InvalidNpmPackageId(String),
+  InvalidNpmPackageId(StackString),
   #[error("Invalid npm package dependency '{0}'")]
-  InvalidNpmPackageDependency(String),
+  InvalidNpmPackageDependency(StackString),
   #[error(transparent)]
   InvalidPackageSpecifier(#[from] JsrDepPackageReqParseError),
   #[error("Invalid package specifier version '{version}' for '{specifier}'")]
-  InvalidPackageSpecifierVersion { specifier: String, version: String },
+  InvalidPackageSpecifierVersion {
+    specifier: String,
+    version: StackString,
+  },
   #[error("Invalid jsr dependency '{dependency}' for '{package}'")]
   InvalidJsrDependency {
     package: PackageNv,
-    dependency: String,
+    dependency: StackString,
   },
   #[error(
     "npm package '{0}' was not found and could not have its version resolved"
   )]
-  MissingPackage(String),
+  MissingPackage(StackString),
 }
