@@ -14,11 +14,11 @@ path = "tests/spec_test.rs"
 harness = false
 
 [dependencies]
-deno_semver = "0.6.0"
+deno_semver = "0.7.0"
 serde = { version = "1.0.149", features = ["derive"] }
 serde_json = "1.0.85"
 thiserror = "2.0.3"
 
 [dev-dependencies]
-file_test_runner = "0.7.2"
+file_test_runner = "0.7.4"
 pretty_assertions = "1.4.0"

@@ -6,6 +6,8 @@ use std::collections::HashMap;
 
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
+use deno_semver::SmallStackString;
+use deno_semver::StackString;
 use serde::Serialize;
 
 use crate::JsrPackageInfo;
@@ -19,7 +21,7 @@ use crate::WorkspaceMemberConfigContent;
 struct SerializedJsrPkg<'a> {
   integrity: &'a str,
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  dependencies: Vec<String>,
+  dependencies: Vec<StackString>,
 }
 
 #[derive(Serialize)]
@@ -34,7 +36,7 @@ struct SerializedNpmPkg<'a> {
 // output and so that's why this is used rather than JsrDepPackageReq
 // directly.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-struct SerializedJsrDepPackageReq(String);
+struct SerializedJsrDepPackageReq(StackString);
 
 impl SerializedJsrDepPackageReq {
   pub fn new(dep_req: &JsrDepPackageReq) -> Self {
@@ -85,7 +87,7 @@ struct SerializedWorkspaceConfigContent<'a> {
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
 }
 
-impl<'a> SerializedWorkspaceConfigContent<'a> {
+impl SerializedWorkspaceConfigContent<'_> {
   pub fn is_empty(&self) -> bool {
     self.root.is_empty() && self.members.is_empty()
   }
@@ -96,7 +98,7 @@ struct LockfileV4<'a> {
   // order these based on auditability
   version: &'static str,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  specifiers: BTreeMap<SerializedJsrDepPackageReq, &'a String>,
+  specifiers: BTreeMap<SerializedJsrDepPackageReq, &'a str>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   jsr: BTreeMap<&'a PackageNv, SerializedJsrPkg<'a>>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -112,10 +114,10 @@ struct LockfileV4<'a> {
 pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_jsr<'a>(
     jsr: &'a BTreeMap<PackageNv, JsrPackageInfo>,
-    specifiers: &HashMap<JsrDepPackageReq, String>,
+    specifiers: &HashMap<JsrDepPackageReq, SmallStackString>,
   ) -> BTreeMap<&'a PackageNv, SerializedJsrPkg<'a>> {
     fn create_had_multiple_specifiers_map(
-      specifiers: &HashMap<JsrDepPackageReq, String>,
+      specifiers: &HashMap<JsrDepPackageReq, SmallStackString>,
     ) -> HashMap<&str, bool> {
       let mut had_multiple_specifiers: HashMap<&str, bool> =
         HashMap::with_capacity(specifiers.len());
@@ -148,7 +150,12 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
                     .map(|had_multiple| !had_multiple)
                     .unwrap_or(false);
                   if has_single_specifier {
-                    format!("{}{}", dep.kind.scheme_with_colon(), dep.req.name)
+                    let mut stack_string = StackString::with_capacity(
+                      dep.kind.scheme_with_colon().len() + dep.req.name.len(),
+                    );
+                    stack_string.push_str(dep.kind.scheme_with_colon());
+                    stack_string.push_str(dep.req.name.as_str());
+                    stack_string
                   } else {
                     dep.to_string_normalized()
                   }
@@ -164,7 +171,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   }
 
   fn handle_npm(
-    npm: &BTreeMap<String, NpmPackageInfo>,
+    npm: &BTreeMap<StackString, NpmPackageInfo>,
   ) -> BTreeMap<&str, SerializedNpmPkg> {
     fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
       if value.is_empty() {
@@ -267,7 +274,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   let mut specifiers = BTreeMap::new();
   for (key, value) in &content.packages.specifiers {
     // insert a string to ensure proper sorting
-    specifiers.insert(SerializedJsrDepPackageReq::new(key), value);
+    specifiers.insert(SerializedJsrDepPackageReq::new(key), value.as_str());
   }
 
   let lockfile = LockfileV4 {
