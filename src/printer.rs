@@ -87,7 +87,7 @@ struct SerializedWorkspaceConfigContent<'a> {
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
 }
 
-impl<'a> SerializedWorkspaceConfigContent<'a> {
+impl SerializedWorkspaceConfigContent<'_> {
   pub fn is_empty(&self) -> bool {
     self.root.is_empty() && self.members.is_empty()
   }
