@@ -76,6 +76,12 @@ struct LockfileNpmGraphPackage {
   root_ids: HashSet<LockfilePkgId>,
   integrity: String,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
+  optional_dependencies: BTreeSet<LockfileNpmPackageId>,
+  os: Vec<SmallStackString>,
+  cpu: Vec<SmallStackString>,
+  bin: bool,
+  scripts: bool,
+  deprecated: bool,
 }
 
 #[derive(Debug)]
@@ -163,6 +169,16 @@ impl LockfilePackageGraph {
               (key.clone(), LockfileNpmPackageId(dep_id.clone()))
             })
             .collect(),
+          optional_dependencies: package
+            .optional_dependencies
+            .iter()
+            .map(|dep_id| LockfileNpmPackageId(dep_id.clone()))
+            .collect(),
+          cpu: package.cpu.clone(),
+          os: package.os.clone(),
+          deprecated: package.deprecated,
+          scripts: package.scripts,
+          bin: package.bin,
         }),
       );
     }
@@ -336,7 +352,7 @@ impl LockfilePackageGraph {
               LockfilePkgId::Npm(_) => unreachable!(),
             },
             crate::JsrPackageInfo {
-              integrity: package.integrity.clone(),
+              integrity: package.integrity,
               dependencies: package
                 .dependencies
                 .into_iter()
@@ -352,12 +368,22 @@ impl LockfilePackageGraph {
               LockfilePkgId::Npm(id) => id.0,
             },
             NpmPackageInfo {
-              integrity: package.integrity.clone(),
+              integrity: package.integrity,
               dependencies: package
                 .dependencies
                 .into_iter()
                 .map(|(name, id)| (name, id.0))
                 .collect(),
+              cpu: package.cpu,
+              os: package.os,
+              scripts: package.scripts,
+              deprecated: package.deprecated,
+              optional_dependencies: package
+                .optional_dependencies
+                .into_iter()
+                .map(|id| id.0)
+                .collect(),
+              bin: package.bin,
             },
           );
         }

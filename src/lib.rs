@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::collections::btree_map::Entry as BTreeMapEntry;
 use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -64,6 +65,12 @@ pub struct NpmPackageLockfileInfo {
   pub serialized_id: StackString,
   pub integrity: String,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
+  pub optional_dependencies: Vec<usize>,
+  pub scripts: bool,
+  pub deprecated: bool,
+  pub bin: bool,
+  pub os: Vec<SmallStackString>,
+  pub cpu: Vec<SmallStackString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +84,19 @@ pub struct NpmPackageInfo {
   pub integrity: String,
   #[serde(default)]
   pub dependencies: BTreeMap<StackString, StackString>,
+  #[serde(default)]
+  pub optional_dependencies: BTreeSet<StackString>,
+  pub scripts: bool,
+  pub bin: bool,
+  pub deprecated: bool,
+  pub os: Vec<SmallStackString>,
+  pub cpu: Vec<SmallStackString>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub struct NpmPackageDist {
+  pub shasum: String,
+  pub integrity: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -208,10 +228,23 @@ impl LockfileContent {
     }
 
     #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct RawNpmPackageInfo {
       pub integrity: String,
       #[serde(default)]
       pub dependencies: Vec<StackString>,
+      #[serde(default)]
+      pub optional_dependencies: Vec<usize>,
+      #[serde(default)]
+      pub os: Vec<SmallStackString>,
+      #[serde(default)]
+      pub cpu: Vec<SmallStackString>,
+      #[serde(default)]
+      pub deprecated: bool,
+      #[serde(default)]
+      pub scripts: bool,
+      #[serde(default)]
+      pub bin: bool,
     }
 
     #[derive(Debug, Deserialize)]
@@ -269,7 +302,12 @@ impl LockfileContent {
           for (key, value) in raw_npm {
             let mut dependencies: BTreeMap<StackString, StackString> =
               BTreeMap::new();
-            for dep in value.dependencies {
+            let mut optional_dependencies = BTreeSet::new();
+            let optional_set = value
+              .optional_dependencies
+              .into_iter()
+              .collect::<BTreeSet<_>>();
+            for (idx, dep) in value.dependencies.into_iter().enumerate() {
               let (left, right) = match extract_nv_from_id(&dep) {
                 Some((name, version)) => (name, version),
                 None => match version_by_dep_name.get(&dep) {
@@ -306,12 +344,23 @@ impl LockfileContent {
                 text.push_str(version);
                 text
               });
+              if optional_set.contains(&idx) {
+                optional_dependencies.insert(StackString::from_string(
+                  format!("{}@{}", package_name, version),
+                ));
+              }
             }
             npm.insert(
               key,
               NpmPackageInfo {
                 integrity: value.integrity,
                 dependencies,
+                cpu: value.cpu,
+                os: value.os,
+                deprecated: value.deprecated,
+                scripts: value.scripts,
+                optional_dependencies,
+                bin: value.bin,
               },
             );
           }
@@ -702,6 +751,11 @@ impl Lockfile {
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
   pub fn insert_npm_package(&mut self, package_info: NpmPackageLockfileInfo) {
+    let optional_dependencies = package_info
+      .optional_dependencies
+      .into_iter()
+      .map(|idx| package_info.dependencies[idx].id.clone())
+      .collect();
     let dependencies = package_info
       .dependencies
       .into_iter()
@@ -712,6 +766,12 @@ impl Lockfile {
     let package_info = NpmPackageInfo {
       integrity: package_info.integrity,
       dependencies,
+      optional_dependencies,
+      scripts: package_info.scripts,
+      deprecated: package_info.deprecated,
+      os: package_info.os,
+      cpu: package_info.cpu,
+      bin: package_info.bin,
     };
     match entry {
       BTreeMapEntry::Vacant(entry) => {
@@ -829,6 +889,11 @@ mod tests {
     "nanoid@3.3.4": {
       "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
       "dependencies": []
+      "optional_dependencies": [],
+      "os": [],
+      "cpu": [],
+      "scripts": false,
+      "deprecated": false,
     },
     "picocolors@1.0.0": {
       "integrity": "sha512-foobar",
@@ -1017,6 +1082,12 @@ mod tests {
       serialized_id: "nanoid@3.3.4".into(),
       integrity: "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string(),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      scripts: false,
+      deprecated: false,
+      bin: false,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(!lockfile.has_content_changed);
@@ -1026,6 +1097,12 @@ mod tests {
       serialized_id: "picocolors@1.0.0".into(),
       integrity: "sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string(),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      scripts: false,
+      deprecated: false,
+      bin: false,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(lockfile.has_content_changed);
@@ -1035,6 +1112,12 @@ mod tests {
       serialized_id: "source-map-js@1.0.2".into(),
       integrity: "sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string(),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      scripts: false,
+      deprecated: false,
+      bin: false,
     };
     // Not present in lockfile yet, should be inserted
     lockfile.insert_npm_package(npm_package.clone());
@@ -1049,6 +1132,12 @@ mod tests {
       serialized_id: "source-map-js@1.0.2".into(),
       integrity: "sha512-foobar".to_string(),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      scripts: false,
+      deprecated: false,
+      bin: false,
     };
     // Now present in lockfile, should be changed due to different integrity
     lockfile.insert_npm_package(npm_package);
