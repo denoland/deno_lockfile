@@ -29,6 +29,22 @@ struct SerializedNpmPkg<'a> {
   integrity: &'a str,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   dependencies: Vec<Cow<'a, str>>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  optional_dependencies: Vec<usize>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  os: Vec<SmallStackString>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  cpu: Vec<SmallStackString>,
+  #[serde(skip_serializing_if = "is_false")]
+  deprecated: bool,
+  #[serde(skip_serializing_if = "is_false")]
+  scripts: bool,
+  #[serde(skip_serializing_if = "is_false")]
+  bin: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+  !value
 }
 
 // WARNING: It's important to implement Ord/PartialOrd on the final
@@ -198,30 +214,47 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
     npm
       .iter()
       .map(|(key, value)| {
+        let dependencies = value
+          .dependencies
+          .iter()
+          .filter_map(|(key, id)| {
+            let (name, version) = extract_nv_from_id(id)?;
+            if name == key {
+              let has_single_version = pkg_had_multiple_versions
+                .get(name)
+                .map(|had_multiple| !had_multiple)
+                .unwrap_or(false);
+              if has_single_version {
+                Some(Cow::Borrowed(name))
+              } else {
+                Some(Cow::Borrowed(id))
+              }
+            } else {
+              Some(Cow::Owned(format!("{}@npm:{}@{}", key, name, version)))
+            }
+          })
+          .collect::<Vec<_>>();
+        let indices = dependencies
+          .iter()
+          .enumerate()
+          .map(|(i, dep)| (dep, i))
+          .collect::<HashMap<_, _>>();
+        let optional_dependencies = value
+          .optional_dependencies
+          .iter()
+          .map(|dep| indices[&Cow::Borrowed(dep.as_str())])
+          .collect();
         (
           key.as_str(),
           SerializedNpmPkg {
             integrity: &value.integrity,
-            dependencies: value
-              .dependencies
-              .iter()
-              .filter_map(|(key, id)| {
-                let (name, version) = extract_nv_from_id(id)?;
-                if name == key {
-                  let has_single_version = pkg_had_multiple_versions
-                    .get(name)
-                    .map(|had_multiple| !had_multiple)
-                    .unwrap_or(false);
-                  if has_single_version {
-                    Some(Cow::Borrowed(name))
-                  } else {
-                    Some(Cow::Borrowed(id))
-                  }
-                } else {
-                  Some(Cow::Owned(format!("{}@npm:{}@{}", key, name, version)))
-                }
-              })
-              .collect(),
+            dependencies,
+            optional_dependencies,
+            os: value.os.clone(),
+            cpu: value.cpu.clone(),
+            bin: value.bin,
+            deprecated: value.deprecated,
+            scripts: value.scripts,
           },
         )
       })

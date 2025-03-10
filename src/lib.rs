@@ -65,7 +65,7 @@ pub struct NpmPackageLockfileInfo {
   pub serialized_id: StackString,
   pub integrity: String,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
-  pub optional_dependencies: Vec<usize>,
+  pub optional_dependencies: Vec<StackString>,
   pub scripts: bool,
   pub deprecated: bool,
   pub bin: bool,
@@ -751,11 +751,8 @@ impl Lockfile {
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
   pub fn insert_npm_package(&mut self, package_info: NpmPackageLockfileInfo) {
-    let optional_dependencies = package_info
-      .optional_dependencies
-      .into_iter()
-      .map(|idx| package_info.dependencies[idx].id.clone())
-      .collect();
+    let optional_dependencies =
+      package_info.optional_dependencies.into_iter().collect();
     let dependencies = package_info
       .dependencies
       .into_iter()
