@@ -108,6 +108,7 @@ fn config_changes_test(test: &CollectedTest) {
             )
           })
           .collect(),
+        patches: Default::default(),
       }
     }
   }

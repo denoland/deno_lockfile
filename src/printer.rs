@@ -85,6 +85,9 @@ struct SerializedWorkspaceConfigContent<'a> {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub patches: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
 }
 
 impl SerializedWorkspaceConfigContent<'_> {
@@ -264,6 +267,11 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
       root: handle_workspace_member(&content.root),
       members: content
         .members
+        .iter()
+        .map(|(key, value)| (key.as_str(), handle_workspace_member(value)))
+        .collect(),
+      patches: content
+        .patches
         .iter()
         .map(|(key, value)| (key.as_str(), handle_workspace_member(value)))
         .collect(),

@@ -29,6 +29,7 @@ fn adding_workspace_does_not_cause_content_changes() {
           package_json_deps: Default::default(),
         },
         members: Default::default(),
+        patches: Default::default(),
       },
     });
     assert!(!lockfile.has_content_changed); // should not have changed
@@ -50,6 +51,7 @@ fn adding_workspace_does_not_cause_content_changes() {
           package_json_deps: Default::default(),
         },
         members: Default::default(),
+        patches: Default::default(),
       },
     });
     assert!(lockfile.has_content_changed);
@@ -76,6 +78,7 @@ fn adding_workspace_does_not_cause_content_changes() {
           package_json_deps: Default::default(),
         },
         members: Default::default(),
+        patches: Default::default(),
       },
     });
     assert!(lockfile.has_content_changed); // should have changed since lockfile was not empty

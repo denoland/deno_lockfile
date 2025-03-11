@@ -51,6 +51,7 @@ pub struct SetWorkspaceConfigOptions {
 pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: HashMap<String, WorkspaceMemberConfig>,
+  pub patches: HashMap<String, WorkspaceMemberConfig>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -169,11 +170,13 @@ pub(crate) struct WorkspaceConfigContent {
   pub root: WorkspaceMemberConfigContent,
   #[serde(default)]
   pub members: HashMap<String, WorkspaceMemberConfigContent>,
+  #[serde(default)]
+  pub patches: HashMap<String, WorkspaceMemberConfigContent>,
 }
 
 impl WorkspaceConfigContent {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty() && self.members.is_empty()
+    self.root.is_empty() && self.members.is_empty() && self.patches.is_empty()
   }
 
   fn get_all_dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
@@ -577,6 +580,50 @@ impl Lockfile {
     // to !self.has_content_changed after populating it with this information
     let allow_content_changed =
       self.has_content_changed || !self.content.is_empty();
+
+    let mut has_any_patch_changed =
+      options.config.patches.len() != self.content.workspace.patches.len();
+
+    for (patch, new) in options.config.patches {
+      let Some(existing) = self.content.workspace.patches.get_mut(&patch)
+      else {
+        has_any_patch_changed = true;
+        self.content.workspace.patches.insert(
+          patch,
+          WorkspaceMemberConfigContent {
+            dependencies: new.dependencies,
+            package_json: LockfilePackageJsonContent {
+              dependencies: new.package_json_deps,
+            },
+          },
+        );
+        continue;
+      };
+      if new.dependencies != existing.dependencies {
+        has_any_patch_changed = true;
+        existing.dependencies = new.dependencies;
+      }
+      if new.package_json_deps != existing.package_json.dependencies {
+        has_any_patch_changed = true;
+        existing.package_json.dependencies = new.package_json_deps;
+      }
+    }
+
+    // if a patch changes, it's quite complicated to figure out how to get it to redo
+    // npm resolution just for that part, so for now, clear out all the npm dependencies
+    // if any patch changes
+    if has_any_patch_changed {
+      self.content.packages.npm.clear();
+      self
+        .content
+        .packages
+        .specifiers
+        .retain(|k, _| match k.kind {
+          deno_semver::package::PackageKind::Jsr => true,
+          deno_semver::package::PackageKind::Npm => false,
+        });
+    }
+
     let old_deps = self
       .content
       .workspace
