@@ -583,7 +583,7 @@ impl Lockfile {
 
     let has_any_patch_changed = options.config.patches.len()
       != self.content.workspace.patches.len()
-      || options.config.patches.len() > 0
+      || !options.config.patches.is_empty()
         && options.config.patches.iter().all(|(patch, new)| {
           let Some(existing) = self.content.workspace.patches.get_mut(patch)
           else {
