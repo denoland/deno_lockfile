@@ -273,7 +273,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
       patches: content
         .patches
         .iter()
-        .map(|(key, value)| (key.as_str(), handle_pkg_json_content(&value)))
+        .map(|(key, value)| (key.as_str(), handle_pkg_json_content(value)))
         .collect(),
     }
   }
