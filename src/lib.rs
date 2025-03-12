@@ -583,13 +583,14 @@ impl Lockfile {
 
     let has_any_patch_changed = options.config.patches.len()
       != self.content.workspace.patches.len()
-      || options.config.patches.iter().all(|(patch, new)| {
-        let Some(existing) = self.content.workspace.patches.get_mut(patch)
-        else {
-          return true;
-        };
-        *new != existing.dependencies
-      });
+      || options.config.patches.len() > 0
+        && options.config.patches.iter().all(|(patch, new)| {
+          let Some(existing) = self.content.workspace.patches.get_mut(patch)
+          else {
+            return true;
+          };
+          *new != existing.dependencies
+        });
 
     // if a patch changes, it's quite complicated to figure out how to get it to redo
     // npm resolution just for that part, so for now, clear out all the npm dependencies
