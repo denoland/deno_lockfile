@@ -581,25 +581,15 @@ impl Lockfile {
     let allow_content_changed =
       self.has_content_changed || !self.content.is_empty();
 
-    let mut has_any_patch_changed =
-      options.config.patches.len() != self.content.workspace.patches.len();
-
-    for (patch, new) in options.config.patches {
-      let Some(existing) = self.content.workspace.patches.get_mut(&patch)
-      else {
-        has_any_patch_changed = true;
-        self
-          .content
-          .workspace
-          .patches
-          .insert(patch, LockfilePackageJsonContent { dependencies: new });
-        continue;
-      };
-      if new != existing.dependencies {
-        has_any_patch_changed = true;
-        existing.dependencies = new;
-      }
-    }
+    let has_any_patch_changed = options.config.patches.len()
+      != self.content.workspace.patches.len()
+      || options.config.patches.iter().all(|(patch, new)| {
+        let Some(existing) = self.content.workspace.patches.get_mut(patch)
+        else {
+          return true;
+        };
+        *new != existing.dependencies
+      });
 
     // if a patch changes, it's quite complicated to figure out how to get it to redo
     // npm resolution just for that part, so for now, clear out all the npm dependencies
@@ -614,6 +604,12 @@ impl Lockfile {
           deno_semver::package::PackageKind::Jsr => true,
           deno_semver::package::PackageKind::Npm => false,
         });
+      self.content.workspace.patches.clear();
+      self.content.workspace.patches.extend(
+        options.config.patches.into_iter().map(|(patch, new)| {
+          (patch, LockfilePackageJsonContent { dependencies: new })
+        }),
+      );
     }
 
     let old_deps = self
