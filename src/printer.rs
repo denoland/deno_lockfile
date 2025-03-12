@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
@@ -87,7 +88,7 @@ struct SerializedWorkspaceConfigContent<'a> {
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  pub patches: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
+  pub patches: BTreeMap<&'a str, SerializedLockfilePackageJsonContent>,
 }
 
 impl SerializedWorkspaceConfigContent<'_> {
@@ -234,30 +235,29 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_pkg_json_content(
     content: &LockfilePackageJsonContent,
   ) -> SerializedLockfilePackageJsonContent {
-    let mut dependencies = content
-      .dependencies
-      .iter()
-      .map(SerializedJsrDepPackageReq::new)
-      .collect::<Vec<_>>();
-    dependencies.sort();
-    SerializedLockfilePackageJsonContent { dependencies }
+    SerializedLockfilePackageJsonContent {
+      dependencies: sort_deps(&content.dependencies),
+    }
   }
 
   fn handle_workspace_member(
     member: &WorkspaceMemberConfigContent,
   ) -> SerializedWorkspaceMemberConfigContent {
     SerializedWorkspaceMemberConfigContent {
-      dependencies: {
-        let mut member = member
-          .dependencies
-          .iter()
-          .map(SerializedJsrDepPackageReq::new)
-          .collect::<Vec<_>>();
-        member.sort();
-        member
-      },
+      dependencies: sort_deps(&member.dependencies),
       package_json: handle_pkg_json_content(&member.package_json),
     }
+  }
+
+  fn sort_deps(
+    deps: &HashSet<JsrDepPackageReq>,
+  ) -> Vec<SerializedJsrDepPackageReq> {
+    let mut dependencies = deps
+      .iter()
+      .map(SerializedJsrDepPackageReq::new)
+      .collect::<Vec<_>>();
+    dependencies.sort();
+    dependencies
   }
 
   fn handle_workspace(
@@ -273,7 +273,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
       patches: content
         .patches
         .iter()
-        .map(|(key, value)| (key.as_str(), handle_workspace_member(value)))
+        .map(|(key, value)| (key.as_str(), handle_pkg_json_content(&value)))
         .collect(),
     }
   }

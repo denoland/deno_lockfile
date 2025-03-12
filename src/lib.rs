@@ -51,7 +51,7 @@ pub struct SetWorkspaceConfigOptions {
 pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: HashMap<String, WorkspaceMemberConfig>,
-  pub patches: HashMap<String, WorkspaceMemberConfig>,
+  pub patches: HashMap<String, HashSet<JsrDepPackageReq>>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -171,7 +171,7 @@ pub(crate) struct WorkspaceConfigContent {
   #[serde(default)]
   pub members: HashMap<String, WorkspaceMemberConfigContent>,
   #[serde(default)]
-  pub patches: HashMap<String, WorkspaceMemberConfigContent>,
+  pub patches: HashMap<String, LockfilePackageJsonContent>,
 }
 
 impl WorkspaceConfigContent {
@@ -588,24 +588,16 @@ impl Lockfile {
       let Some(existing) = self.content.workspace.patches.get_mut(&patch)
       else {
         has_any_patch_changed = true;
-        self.content.workspace.patches.insert(
-          patch,
-          WorkspaceMemberConfigContent {
-            dependencies: new.dependencies,
-            package_json: LockfilePackageJsonContent {
-              dependencies: new.package_json_deps,
-            },
-          },
-        );
+        self
+          .content
+          .workspace
+          .patches
+          .insert(patch, LockfilePackageJsonContent { dependencies: new });
         continue;
       };
-      if new.dependencies != existing.dependencies {
+      if new != existing.dependencies {
         has_any_patch_changed = true;
-        existing.dependencies = new.dependencies;
-      }
-      if new.package_json_deps != existing.package_json.dependencies {
-        has_any_patch_changed = true;
-        existing.package_json.dependencies = new.package_json_deps;
+        existing.dependencies = new;
       }
     }
 
