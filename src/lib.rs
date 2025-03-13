@@ -596,6 +596,7 @@ impl Lockfile {
     // npm resolution just for that part, so for now, clear out all the npm dependencies
     // if any patch changes
     if has_any_patch_changed {
+      self.has_content_changed = true;
       self.content.packages.npm.clear();
       self
         .content

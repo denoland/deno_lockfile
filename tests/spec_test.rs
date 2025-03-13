@@ -71,12 +71,22 @@ fn config_changes_test(test: &CollectedTest) {
 
   #[derive(Debug, Default, Clone, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
+  struct PatchConfigContent {
+    #[serde(default)]
+    dependencies: BTreeSet<JsrDepPackageReq>,
+  }
+
+  #[derive(Debug, Default, Clone, Deserialize, Hash)]
+  #[serde(rename_all = "camelCase")]
   struct WorkspaceConfigContent {
     #[serde(default, flatten)]
     root: WorkspaceMemberConfigContent,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     members: BTreeMap<String, WorkspaceMemberConfigContent>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default)]
+    patches: BTreeMap<String, PatchConfigContent>,
   }
 
   impl WorkspaceConfigContent {
@@ -108,7 +118,11 @@ fn config_changes_test(test: &CollectedTest) {
             )
           })
           .collect(),
-        patches: Default::default(),
+        patches: self
+          .patches
+          .into_iter()
+          .map(|(k, v)| (k, v.dependencies.into_iter().collect()))
+          .collect(),
       }
     }
   }

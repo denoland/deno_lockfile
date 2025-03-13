@@ -93,7 +93,7 @@ struct SerializedWorkspaceConfigContent<'a> {
 
 impl SerializedWorkspaceConfigContent<'_> {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty() && self.members.is_empty()
+    self.root.is_empty() && self.members.is_empty() && self.patches.is_empty()
   }
 }
 
