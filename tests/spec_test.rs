@@ -138,7 +138,7 @@ fn config_changes_test(test: &CollectedTest) {
               LockfilePatchContent {
                 dependencies: v.dependencies.into_iter().collect(),
                 peer_dependencies: v.peer_dependencies.into_iter().collect(),
-                peer_dependency_meta: v
+                peer_dependencies_meta: v
                   .peer_dependencies_meta
                   .into_iter()
                   .map(|(k, v)| (k, serde_json::to_value(v).unwrap()))

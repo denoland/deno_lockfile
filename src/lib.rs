@@ -174,7 +174,7 @@ pub struct LockfilePatchContent {
   pub peer_dependencies: HashSet<JsrDepPackageReq>,
   #[serde(default)]
   #[serde(skip_serializing_if = "HashMap::is_empty")]
-  pub peer_dependency_meta: HashMap<String, serde_json::Value>,
+  pub peer_dependencies_meta: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]

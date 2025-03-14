@@ -71,7 +71,7 @@ struct SerializedLockfilePatchContent {
   pub peer_dependencies: Vec<SerializedJsrDepPackageReq>,
   #[serde(default)]
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-  pub peer_dependency_meta: BTreeMap<String, serde_json::Value>,
+  pub peer_dependencies_meta: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -270,8 +270,8 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
     SerializedLockfilePatchContent {
       dependencies: sort_deps(&content.dependencies),
       peer_dependencies: sort_deps(&content.peer_dependencies),
-      peer_dependency_meta: content
-        .peer_dependency_meta
+      peer_dependencies_meta: content
+        .peer_dependencies_meta
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect(),
