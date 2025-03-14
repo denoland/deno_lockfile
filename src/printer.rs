@@ -14,6 +14,7 @@ use serde::Serialize;
 use crate::JsrPackageInfo;
 use crate::LockfileContent;
 use crate::LockfilePackageJsonContent;
+use crate::LockfilePatchContent;
 use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
@@ -61,6 +62,20 @@ impl SerializedLockfilePackageJsonContent {
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SerializedLockfilePatchContent {
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub dependencies: Vec<SerializedJsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub peer_dependencies: Vec<SerializedJsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  pub peer_dependency_meta: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SerializedWorkspaceMemberConfigContent {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[serde(default)]
@@ -88,7 +103,7 @@ struct SerializedWorkspaceConfigContent<'a> {
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  pub patches: BTreeMap<&'a str, SerializedLockfilePackageJsonContent>,
+  pub patches: BTreeMap<&'a str, SerializedLockfilePatchContent>,
 }
 
 impl SerializedWorkspaceConfigContent<'_> {
@@ -249,6 +264,20 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
     }
   }
 
+  fn handle_patch_content(
+    content: &LockfilePatchContent,
+  ) -> SerializedLockfilePatchContent {
+    SerializedLockfilePatchContent {
+      dependencies: sort_deps(&content.dependencies),
+      peer_dependencies: sort_deps(&content.peer_dependencies),
+      peer_dependency_meta: content
+        .peer_dependency_meta
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect(),
+    }
+  }
+
   fn sort_deps(
     deps: &HashSet<JsrDepPackageReq>,
   ) -> Vec<SerializedJsrDepPackageReq> {
@@ -273,7 +302,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
       patches: content
         .patches
         .iter()
-        .map(|(key, value)| (key.as_str(), handle_pkg_json_content(value)))
+        .map(|(key, value)| (key.as_str(), handle_patch_content(value)))
         .collect(),
     }
   }

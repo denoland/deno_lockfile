@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::panic::AssertUnwindSafe;
 
 use deno_lockfile::Lockfile;
+use deno_lockfile::LockfilePatchContent;
 use deno_lockfile::NewLockfileOptions;
 use deno_lockfile::PackagesContent;
 use deno_lockfile::SetWorkspaceConfigOptions;
@@ -74,6 +75,16 @@ fn config_changes_test(test: &CollectedTest) {
   struct PatchConfigContent {
     #[serde(default)]
     dependencies: BTreeSet<JsrDepPackageReq>,
+    #[serde(default)]
+    peer_dependencies: BTreeSet<JsrDepPackageReq>,
+    #[serde(default)]
+    peer_dependencies_meta: BTreeMap<String, PeerDependenciesMetaValue>,
+  }
+
+  #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
+  #[serde(rename_all = "camelCase")]
+  struct PeerDependenciesMetaValue {
+    optional: bool,
   }
 
   #[derive(Debug, Default, Clone, Deserialize, Hash)]
@@ -121,7 +132,20 @@ fn config_changes_test(test: &CollectedTest) {
         patches: self
           .patches
           .into_iter()
-          .map(|(k, v)| (k, v.dependencies.into_iter().collect()))
+          .map(|(k, v)| {
+            (
+              k,
+              LockfilePatchContent {
+                dependencies: v.dependencies.into_iter().collect(),
+                peer_dependencies: v.peer_dependencies.into_iter().collect(),
+                peer_dependency_meta: v
+                  .peer_dependencies_meta
+                  .into_iter()
+                  .map(|(k, v)| (k, serde_json::to_value(v).unwrap()))
+                  .collect(),
+              },
+            )
+          })
           .collect(),
       }
     }

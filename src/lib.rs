@@ -51,7 +51,7 @@ pub struct SetWorkspaceConfigOptions {
 pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: HashMap<String, WorkspaceMemberConfig>,
-  pub patches: HashMap<String, HashSet<JsrDepPackageReq>>,
+  pub patches: HashMap<String, LockfilePatchContent>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -163,6 +163,20 @@ impl WorkspaceMemberConfigContent {
   }
 }
 
+#[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LockfilePatchContent {
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub dependencies: HashSet<JsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub peer_dependencies: HashSet<JsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "HashMap::is_empty")]
+  pub peer_dependency_meta: HashMap<String, serde_json::Value>,
+}
+
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceConfigContent {
@@ -171,7 +185,7 @@ pub(crate) struct WorkspaceConfigContent {
   #[serde(default)]
   pub members: HashMap<String, WorkspaceMemberConfigContent>,
   #[serde(default)]
-  pub patches: HashMap<String, LockfilePackageJsonContent>,
+  pub patches: HashMap<String, LockfilePatchContent>,
 }
 
 impl WorkspaceConfigContent {
@@ -589,7 +603,7 @@ impl Lockfile {
           else {
             return true;
           };
-          *new != existing.dependencies
+          new != existing
         });
 
     // if a patch changes, it's quite complicated to figure out how to get it to redo
@@ -607,11 +621,11 @@ impl Lockfile {
           deno_semver::package::PackageKind::Npm => false,
         });
       self.content.workspace.patches.clear();
-      self.content.workspace.patches.extend(
-        options.config.patches.into_iter().map(|(patch, new)| {
-          (patch, LockfilePackageJsonContent { dependencies: new })
-        }),
-      );
+      self
+        .content
+        .workspace
+        .patches
+        .extend(options.config.patches);
     }
 
     let old_deps = self
