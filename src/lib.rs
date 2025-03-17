@@ -63,7 +63,8 @@ pub struct WorkspaceMemberConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpmPackageLockfileInfo {
   pub serialized_id: StackString,
-  pub integrity: String,
+  /// Will be `None` for patch packages.
+  pub integrity: Option<String>,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
 }
 
@@ -762,7 +763,7 @@ impl Lockfile {
 
     let entry = self.content.packages.npm.entry(package_info.serialized_id);
     let package_info = NpmPackageInfo {
-      integrity: Some(package_info.integrity),
+      integrity: package_info.integrity,
       dependencies,
     };
     match entry {
@@ -1067,7 +1068,7 @@ mod tests {
     // already in lockfile
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "nanoid@3.3.4".into(),
-      integrity: "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string(),
+      integrity: Some("sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string()),
       dependencies: vec![],
     };
     lockfile.insert_npm_package(npm_package);
@@ -1076,7 +1077,7 @@ mod tests {
     // insert package that exists already, but has slightly different properties
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "picocolors@1.0.0".into(),
-      integrity: "sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string(),
+      integrity: Some("sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string()),
       dependencies: vec![],
     };
     lockfile.insert_npm_package(npm_package);
@@ -1085,7 +1086,7 @@ mod tests {
     lockfile.has_content_changed = false;
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "source-map-js@1.0.2".into(),
-      integrity: "sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string(),
+      integrity: Some("sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string()),
       dependencies: vec![],
     };
     // Not present in lockfile yet, should be inserted
@@ -1099,7 +1100,7 @@ mod tests {
 
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "source-map-js@1.0.2".into(),
-      integrity: "sha512-foobar".to_string(),
+      integrity: Some("sha512-foobar".to_string()),
       dependencies: vec![],
     };
     // Now present in lockfile, should be changed due to different integrity
