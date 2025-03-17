@@ -75,7 +75,8 @@ pub struct NpmPackageDependencyLockfileInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct NpmPackageInfo {
-  pub integrity: String,
+  /// Will be `None` for patch packages.
+  pub integrity: Option<String>,
   #[serde(default)]
   pub dependencies: BTreeMap<StackString, StackString>,
 }
@@ -226,7 +227,7 @@ impl LockfileContent {
 
     #[derive(Debug, Deserialize)]
     struct RawNpmPackageInfo {
-      pub integrity: String,
+      pub integrity: Option<String>,
       #[serde(default)]
       pub dependencies: Vec<StackString>,
     }
@@ -761,7 +762,7 @@ impl Lockfile {
 
     let entry = self.content.packages.npm.entry(package_info.serialized_id);
     let package_info = NpmPackageInfo {
-      integrity: package_info.integrity,
+      integrity: Some(package_info.integrity),
       dependencies,
     };
     match entry {

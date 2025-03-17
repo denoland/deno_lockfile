@@ -28,7 +28,9 @@ struct SerializedJsrPkg<'a> {
 
 #[derive(Serialize)]
 struct SerializedNpmPkg<'a> {
-  integrity: &'a str,
+  /// Will be `None` for patch packages.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  integrity: Option<&'a str>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   dependencies: Vec<Cow<'a, str>>,
 }
@@ -220,7 +222,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
         (
           key.as_str(),
           SerializedNpmPkg {
-            integrity: &value.integrity,
+            integrity: value.integrity.as_deref(),
             dependencies: value
               .dependencies
               .iter()

@@ -139,7 +139,6 @@
       ]
     },
     "ts-morph@21.0.1": {
-      "integrity": "sha512-dbDtVdEAncKctzrVZ+Nr7kHpHkv+0JDJb2MjjpBaj8bFeCkePU9rHfMklmhuLFnpeq/EJZk2IhStY6NzqgjOkg==",
       "dependencies": [
         "@ts-morph/common",
         "code-block-writer"
@@ -309,7 +308,6 @@
       ]
     },
     "ts-morph@21.0.1": {
-      "integrity": "sha512-dbDtVdEAncKctzrVZ+Nr7kHpHkv+0JDJb2MjjpBaj8bFeCkePU9rHfMklmhuLFnpeq/EJZk2IhStY6NzqgjOkg==",
       "dependencies": [
         "@ts-morph/common",
         "code-block-writer"
