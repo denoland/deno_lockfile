@@ -29,6 +29,7 @@ mod transforms;
 pub use error::DeserializationError;
 pub use error::LockfileError;
 pub use error::LockfileErrorReason;
+use transforms::NpmPackageInfoProvider;
 
 use crate::graphs::LockfilePackageGraph;
 
@@ -460,6 +461,71 @@ impl Lockfile {
     }
   }
 
+  pub async fn new_maybe_transform(
+    opts: NewLockfileOptions<'_>,
+    provider: &impl NpmPackageInfoProvider,
+  ) -> Result<Lockfile, Box<LockfileError>> {
+    async fn load_content(
+      content: &str,
+      provider: &impl NpmPackageInfoProvider,
+    ) -> Result<LockfileContent, LockfileErrorReason> {
+      let value: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(content)
+          .map_err(LockfileErrorReason::ParseError)?;
+      let version = value.get("version").and_then(|v| v.as_str());
+      let value = match version {
+        Some("5") => value,
+        Some("4") => transforms::transform4_to_5(value, provider).await?,
+        Some("3") => transforms::transform3_to_4(value)?,
+        Some("2") => {
+          transforms::transform3_to_4(transforms::transform2_to_3(value))?
+        }
+        None => transforms::transform3_to_4(transforms::transform2_to_3(
+          transforms::transform1_to_2(value),
+        ))?,
+        Some(version) => {
+          return Err(LockfileErrorReason::UnsupportedVersion {
+            version: version.to_string(),
+          });
+        }
+      };
+      let content = LockfileContent::from_json(value.into())
+        .map_err(LockfileErrorReason::DeserializationError)?;
+
+      Ok(content)
+    }
+
+    // Writing a lock file always uses the new format.
+    if opts.overwrite {
+      return Ok(Lockfile {
+        overwrite: opts.overwrite,
+        filename: opts.file_path,
+        has_content_changed: false,
+        content: LockfileContent::default(),
+      });
+    }
+
+    if opts.content.trim().is_empty() {
+      return Err(Box::new(LockfileError {
+        file_path: opts.file_path.display().to_string(),
+        source: LockfileErrorReason::Empty,
+      }));
+    }
+    let content =
+      load_content(opts.content, provider)
+        .await
+        .map_err(|reason| LockfileError {
+          file_path: opts.file_path.display().to_string(),
+          source: reason,
+        })?;
+    Ok(Lockfile {
+      overwrite: opts.overwrite,
+      has_content_changed: false,
+      content,
+      filename: opts.file_path,
+    })
+  }
+
   pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, Box<LockfileError>> {
     fn load_content(
       content: &str,
@@ -469,14 +535,10 @@ impl Lockfile {
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
       let value = match version {
-        Some("4") => value,
-        Some("3") => transforms::transform3_to_4(value)?,
-        Some("2") => {
-          transforms::transform3_to_4(transforms::transform2_to_3(value))?
+        Some("5") => value,
+        Some("4" | "3" | "2") | None => {
+          return Err(LockfileErrorReason::TransformNeeded)
         }
-        None => transforms::transform3_to_4(transforms::transform2_to_3(
-          transforms::transform1_to_2(value),
-        ))?,
         Some(version) => {
           return Err(LockfileErrorReason::UnsupportedVersion {
             version: version.to_string(),

@@ -1,8 +1,6 @@
-// Copyright 2018-2024 the Deno authors. MIT license.
+use std::{collections::HashMap, future::Future};
 
-use std::collections::HashMap;
-
-use deno_semver::{package::PackageNv, SmallStackString, StackString, Version};
+use deno_semver::{package::PackageNv, Version};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -263,17 +261,17 @@ pub struct Lockfile5NpmInfo {
 }
 
 pub trait NpmPackageInfoProvider {
-  async fn get_npm_package_info(
+  fn get_npm_package_info(
     &self,
     values: &[PackageNv],
-  ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>>;
+  ) -> impl Future<Output = Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>>>;
 }
 
 #[cfg(test)]
 mod test {
   use std::future::Future;
 
-  use async_executor::{Executor, LocalExecutor};
+  use async_executor::Executor;
   use pretty_assertions::assert_eq;
   use serde_json::json;
 
