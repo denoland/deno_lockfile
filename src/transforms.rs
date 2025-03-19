@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use deno_semver::{package::PackageNv, SmallStackString, StackString, Version};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -43,37 +44,41 @@ pub fn transform2_to_3(mut json: JsonMap) -> JsonMap {
 pub enum TransformError {
   #[error("Failed extracting npm name and version from dep '{id}'.")]
   FailedExtractingV3NpmDepNv { id: String },
+  #[error("Failed getting npm package info: {source}")]
+  FailedGettingNpmPackageInfo {
+    #[source]
+    source: Box<dyn std::error::Error>,
+  },
 }
 
+// note: although these functions are found elsewhere in this repo,
+// it is purposefully duplicated here to ensure it never changes
+// for these transforms
+fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
+  if value.is_empty() {
+    return None;
+  }
+  let at_index = value[1..].find('@')? + 1;
+  let name = &value[..at_index];
+  let version = &value[at_index + 1..];
+  Some((name, version))
+}
+
+fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
+  if value.len() < 5 {
+    return None;
+  }
+  // 5 is length of `jsr:@`/`npm:@`
+  let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
+    // no version requirement
+    // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
+    return Some((value, None));
+  };
+  let name = &value[..at_index];
+  let version = &value[at_index + 1..];
+  Some((name, Some(version)))
+}
 pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
-  // note: although these functions are found elsewhere in this repo,
-  // it is purposefully duplicated here to ensure it never changes
-  // for this transform
-  fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
-    if value.is_empty() {
-      return None;
-    }
-    let at_index = value[1..].find('@')? + 1;
-    let name = &value[..at_index];
-    let version = &value[at_index + 1..];
-    Some((name, version))
-  }
-
-  fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
-    if value.len() < 5 {
-      return None;
-    }
-    // 5 is length of `jsr:@`/`npm:@`
-    let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
-      // no version requirement
-      // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
-      return Some((value, None));
-    };
-    let name = &value[..at_index];
-    let version = &value[at_index + 1..];
-    Some((name, Some(version)))
-  }
-
   json.insert("version".into(), "4".into());
   if let Some(Value::Object(mut packages)) = json.remove("packages") {
     if let Some((npm_key, Value::Object(mut npm))) =
@@ -184,8 +189,91 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
   Ok(json)
 }
 
+pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
+  mut json: JsonMap,
+  info_provider: &T,
+) -> Result<JsonMap, TransformError> {
+  json.insert("version".into(), "5".into());
+
+  if let Some(Value::Object(mut packages)) = json.remove("packages") {
+    if let Some(Value::Object(mut npm)) = packages.remove("npm") {
+      let mut npm_packages = Vec::new();
+      let mut keys = Vec::new();
+      for (key, _) in &npm {
+        let Some((name, version)) = extract_nv_from_id(&key) else {
+          continue;
+        };
+        let Ok(version) = Version::parse_standard(version) else {
+          continue;
+        };
+        npm_packages.push(PackageNv {
+          name: name.into(),
+          version,
+        });
+        keys.push(key.clone());
+      }
+      eprintln!("trying to get npm package info");
+      let results = info_provider
+        .get_npm_package_info(&npm_packages)
+        .await
+        .map_err(|source| TransformError::FailedGettingNpmPackageInfo {
+          source,
+        })?;
+      eprintln!("got npm package info");
+      for (key, result) in keys.iter().zip(results) {
+        let Some(Value::Object(value)) = npm.get_mut(key) else {
+          continue;
+        };
+
+        if let Some(Value::Array(deps)) = value.get("dependencies") {
+          if deps.is_empty() {
+            value.remove("dependencies");
+          }
+        }
+        if !result.optional_dependencies.is_empty() {
+          value.insert(
+            "optional_dependencies".into(),
+            result.optional_dependencies.into(),
+          );
+        }
+        if !result.cpu.is_empty() {
+          value.insert("cpu".into(), result.cpu.into());
+        }
+        if !result.os.is_empty() {
+          value.insert("os".into(), result.os.into());
+        }
+        if let Some(tarball_url) = result.tarball_url {
+          value.insert("tarball".into(), tarball_url.into());
+        }
+      }
+      packages.insert("npm".into(), npm.into());
+    }
+    json.insert("packages".into(), packages.into());
+  }
+
+  Ok(json)
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Lockfile5NpmInfo {
+  pub tarball_url: Option<String>,
+  pub optional_dependencies: Vec<String>,
+  pub cpu: Vec<String>,
+  pub os: Vec<String>,
+}
+
+pub trait NpmPackageInfoProvider {
+  async fn get_npm_package_info(
+    &self,
+    values: &[PackageNv],
+  ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>>;
+}
+
 #[cfg(test)]
 mod test {
+  use std::future::Future;
+
+  use async_executor::{Executor, LocalExecutor};
   use pretty_assertions::assert_eq;
   use serde_json::json;
 
@@ -353,6 +441,164 @@ mod test {
         "https://github.com/": "asdf",
         "https://github.com/mod.ts": "asdf2",
       },
+    })).unwrap());
+  }
+
+  fn run_async<T: Send + Sync>(f: impl Future<Output = T> + Send + Sync) -> T {
+    let executor = Executor::new();
+    let handle = executor.run(async move { f.await });
+    futures_lite::future::block_on(handle)
+  }
+
+  struct TestNpmPackageInfoProvider {
+    packages: HashMap<PackageNv, Lockfile5NpmInfo>,
+  }
+
+  impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
+    async fn get_npm_package_info(
+      &self,
+      values: &[PackageNv],
+    ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>> {
+      Ok(
+        values
+          .iter()
+          .map(|v| self.packages.get(v).unwrap().clone())
+          .collect(),
+      )
+    }
+  }
+
+  fn nv(name_and_version: &str) -> PackageNv {
+    PackageNv::from_str(name_and_version).unwrap()
+  }
+
+  #[test]
+  fn test_transforms_4_to_5() {
+    let result = run_async(async move {
+      let packages = [
+        (
+          nv("package-a@3.3.4"),
+          Lockfile5NpmInfo {
+            cpu: vec!["x86_64".to_string()],
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-b@1.0.0"),
+          Lockfile5NpmInfo {
+            cpu: vec!["x86_64".to_string()],
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-c@1.0.0"),
+          Lockfile5NpmInfo {
+            tarball_url: Some(
+              "https://registry.npmjs.org/package-c/-/package-c-1.0.0.tgz"
+                .to_string(),
+            ),
+            optional_dependencies: vec!["opt-dep-1".to_string()],
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-d@1.0.0"),
+          Lockfile5NpmInfo {
+            os: vec!["darwin".to_string(), "linux".to_string()],
+            optional_dependencies: vec![
+              "opt-dep-2".to_string(),
+              "opt-dep-3".to_string(),
+            ],
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-e@1.0.0"),
+          Lockfile5NpmInfo {
+            tarball_url: Some(
+              "https://registry.npmjs.org/package-e/-/package-e-1.0.0.tgz"
+                .to_string(),
+            ),
+            cpu: vec!["arm64".to_string()],
+            os: vec!["win32".to_string()],
+            ..Default::default()
+          },
+        ),
+      ];
+      let data = serde_json::from_value(json!({
+        "version": "4",
+        "packages": {
+          "npm": {
+            "package-a@3.3.4": {
+              "integrity": "sha512-foobar",
+              "dependencies": [
+                "package-b@1.0.0",
+                "package-c@1.0.0",
+                "package-d@1.0.0",
+                "package-e@1.0.0",
+              ]
+            },
+            "package-b@1.0.0": {
+              "integrity": "sha512-foobar",
+            },
+            "package-c@1.0.0": {
+              "integrity": "sha512-foobar",
+            },
+            "package-d@1.0.0": {
+              "integrity": "sha512-foobar",
+            },
+            "package-e@1.0.0": {
+              "integrity": "sha512-foobar",
+            },
+          }
+        }
+      }))
+      .unwrap();
+      transform4_to_5(
+        data,
+        &TestNpmPackageInfoProvider {
+          packages: HashMap::from_iter(packages),
+        },
+      )
+      .await
+      .unwrap()
+    });
+    assert_eq!(result, serde_json::from_value(json!({
+      "version": "5",
+      "packages": {
+        "npm": {
+          "package-a@3.3.4": {
+            "integrity": "sha512-foobar",
+            "dependencies": [
+              "package-b@1.0.0",
+              "package-c@1.0.0",
+              "package-d@1.0.0",
+              "package-e@1.0.0",
+            ],
+            "cpu": ["x86_64"],
+          },
+          "package-b@1.0.0": {
+            "integrity": "sha512-foobar",
+            "cpu": ["x86_64"],
+          },
+          "package-c@1.0.0": {
+            "integrity": "sha512-foobar",
+            "tarball": "https://registry.npmjs.org/package-c/-/package-c-1.0.0.tgz",
+            "optional_dependencies": ["opt-dep-1"],
+          },
+          "package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+            "os": ["darwin", "linux"],
+            "optional_dependencies": ["opt-dep-2", "opt-dep-3"],
+          },
+          "package-e@1.0.0": {
+            "integrity": "sha512-foobar",
+            "tarball": "https://registry.npmjs.org/package-e/-/package-e-1.0.0.tgz",
+            "cpu": ["arm64"],
+            "os": ["win32"],
+          },
+        }
+      }
     })).unwrap());
   }
 }

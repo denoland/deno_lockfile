@@ -79,9 +79,7 @@ struct LockfileNpmGraphPackage {
   optional_dependencies: BTreeSet<LockfileNpmPackageId>,
   os: Vec<SmallStackString>,
   cpu: Vec<SmallStackString>,
-  bin: bool,
-  scripts: bool,
-  deprecated: bool,
+  tarball: Option<StackString>,
 }
 
 #[derive(Debug)]
@@ -176,9 +174,7 @@ impl LockfilePackageGraph {
             .collect(),
           cpu: package.cpu.clone(),
           os: package.os.clone(),
-          deprecated: package.deprecated,
-          scripts: package.scripts,
-          bin: package.bin,
+          tarball: package.tarball.clone(),
         }),
       );
     }
@@ -376,14 +372,12 @@ impl LockfilePackageGraph {
                 .collect(),
               cpu: package.cpu,
               os: package.os,
-              scripts: package.scripts,
-              deprecated: package.deprecated,
+              tarball: package.tarball.clone(),
               optional_dependencies: package
                 .optional_dependencies
                 .into_iter()
                 .map(|id| id.0)
                 .collect(),
-              bin: package.bin,
             },
           );
         }

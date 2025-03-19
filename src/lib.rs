@@ -66,11 +66,9 @@ pub struct NpmPackageLockfileInfo {
   pub integrity: String,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
   pub optional_dependencies: Vec<StackString>,
-  pub scripts: bool,
-  pub deprecated: bool,
-  pub bin: bool,
   pub os: Vec<SmallStackString>,
   pub cpu: Vec<SmallStackString>,
+  pub tarball: Option<StackString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,11 +84,10 @@ pub struct NpmPackageInfo {
   pub dependencies: BTreeMap<StackString, StackString>,
   #[serde(default)]
   pub optional_dependencies: BTreeSet<StackString>,
-  pub scripts: bool,
-  pub bin: bool,
-  pub deprecated: bool,
   pub os: Vec<SmallStackString>,
   pub cpu: Vec<SmallStackString>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tarball: Option<StackString>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
@@ -239,12 +236,8 @@ impl LockfileContent {
       pub os: Vec<SmallStackString>,
       #[serde(default)]
       pub cpu: Vec<SmallStackString>,
-      #[serde(default)]
-      pub deprecated: bool,
-      #[serde(default)]
-      pub scripts: bool,
-      #[serde(default)]
-      pub bin: bool,
+      #[serde(skip_serializing_if = "Option::is_none")]
+      pub tarball: Option<StackString>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -357,10 +350,8 @@ impl LockfileContent {
                 dependencies,
                 cpu: value.cpu,
                 os: value.os,
-                deprecated: value.deprecated,
-                scripts: value.scripts,
+                tarball: value.tarball,
                 optional_dependencies,
-                bin: value.bin,
               },
             );
           }
@@ -764,11 +755,9 @@ impl Lockfile {
       integrity: package_info.integrity,
       dependencies,
       optional_dependencies,
-      scripts: package_info.scripts,
-      deprecated: package_info.deprecated,
       os: package_info.os,
       cpu: package_info.cpu,
-      bin: package_info.bin,
+      tarball: package_info.tarball,
     };
     match entry {
       BTreeMapEntry::Vacant(entry) => {
@@ -884,13 +873,7 @@ mod tests {
   "version": "4",
   "npm": {
     "nanoid@3.3.4": {
-      "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
-      "dependencies": []
-      "optional_dependencies": [],
-      "os": [],
-      "cpu": [],
-      "scripts": false,
-      "deprecated": false,
+      "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw=="
     },
     "picocolors@1.0.0": {
       "integrity": "sha512-foobar",
@@ -1082,9 +1065,7 @@ mod tests {
       optional_dependencies: vec![],
       os: vec![],
       cpu: vec![],
-      scripts: false,
-      deprecated: false,
-      bin: false,
+      tarball: None,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(!lockfile.has_content_changed);
@@ -1097,9 +1078,7 @@ mod tests {
       optional_dependencies: vec![],
       os: vec![],
       cpu: vec![],
-      scripts: false,
-      deprecated: false,
-      bin: false,
+      tarball: None,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(lockfile.has_content_changed);
@@ -1112,9 +1091,7 @@ mod tests {
       optional_dependencies: vec![],
       os: vec![],
       cpu: vec![],
-      scripts: false,
-      deprecated: false,
-      bin: false,
+      tarball: None,
     };
     // Not present in lockfile yet, should be inserted
     lockfile.insert_npm_package(npm_package.clone());
@@ -1132,9 +1109,7 @@ mod tests {
       optional_dependencies: vec![],
       os: vec![],
       cpu: vec![],
-      scripts: false,
-      deprecated: false,
-      bin: false,
+      tarball: None,
     };
     // Now present in lockfile, should be changed due to different integrity
     lockfile.insert_npm_package(npm_package);
