@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
@@ -13,6 +14,7 @@ use serde::Serialize;
 use crate::JsrPackageInfo;
 use crate::LockfileContent;
 use crate::LockfilePackageJsonContent;
+use crate::LockfilePatchContent;
 use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
@@ -26,7 +28,9 @@ struct SerializedJsrPkg<'a> {
 
 #[derive(Serialize)]
 struct SerializedNpmPkg<'a> {
-  integrity: &'a str,
+  /// Will be `None` for patch packages.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  integrity: Option<&'a str>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   dependencies: Vec<Cow<'a, str>>,
 }
@@ -60,6 +64,20 @@ impl SerializedLockfilePackageJsonContent {
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SerializedLockfilePatchContent {
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub dependencies: Vec<SerializedJsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub peer_dependencies: Vec<SerializedJsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  pub peer_dependencies_meta: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SerializedWorkspaceMemberConfigContent {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[serde(default)]
@@ -85,11 +103,14 @@ struct SerializedWorkspaceConfigContent<'a> {
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[serde(default)]
+  pub patches: BTreeMap<&'a str, SerializedLockfilePatchContent>,
 }
 
 impl SerializedWorkspaceConfigContent<'_> {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty() && self.members.is_empty()
+    self.root.is_empty() && self.members.is_empty() && self.patches.is_empty()
   }
 }
 
@@ -201,7 +222,7 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
         (
           key.as_str(),
           SerializedNpmPkg {
-            integrity: &value.integrity,
+            integrity: value.integrity.as_deref(),
             dependencies: value
               .dependencies
               .iter()
@@ -231,30 +252,43 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_pkg_json_content(
     content: &LockfilePackageJsonContent,
   ) -> SerializedLockfilePackageJsonContent {
-    let mut dependencies = content
-      .dependencies
-      .iter()
-      .map(SerializedJsrDepPackageReq::new)
-      .collect::<Vec<_>>();
-    dependencies.sort();
-    SerializedLockfilePackageJsonContent { dependencies }
+    SerializedLockfilePackageJsonContent {
+      dependencies: sort_deps(&content.dependencies),
+    }
   }
 
   fn handle_workspace_member(
     member: &WorkspaceMemberConfigContent,
   ) -> SerializedWorkspaceMemberConfigContent {
     SerializedWorkspaceMemberConfigContent {
-      dependencies: {
-        let mut member = member
-          .dependencies
-          .iter()
-          .map(SerializedJsrDepPackageReq::new)
-          .collect::<Vec<_>>();
-        member.sort();
-        member
-      },
+      dependencies: sort_deps(&member.dependencies),
       package_json: handle_pkg_json_content(&member.package_json),
     }
+  }
+
+  fn handle_patch_content(
+    content: &LockfilePatchContent,
+  ) -> SerializedLockfilePatchContent {
+    SerializedLockfilePatchContent {
+      dependencies: sort_deps(&content.dependencies),
+      peer_dependencies: sort_deps(&content.peer_dependencies),
+      peer_dependencies_meta: content
+        .peer_dependencies_meta
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect(),
+    }
+  }
+
+  fn sort_deps(
+    deps: &HashSet<JsrDepPackageReq>,
+  ) -> Vec<SerializedJsrDepPackageReq> {
+    let mut dependencies = deps
+      .iter()
+      .map(SerializedJsrDepPackageReq::new)
+      .collect::<Vec<_>>();
+    dependencies.sort();
+    dependencies
   }
 
   fn handle_workspace(
@@ -266,6 +300,11 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
         .members
         .iter()
         .map(|(key, value)| (key.as_str(), handle_workspace_member(value)))
+        .collect(),
+      patches: content
+        .patches
+        .iter()
+        .map(|(key, value)| (key.as_str(), handle_patch_content(value)))
         .collect(),
     }
   }
