@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "deno_lockfile"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "deno_semver",
  "file_test_runner",
