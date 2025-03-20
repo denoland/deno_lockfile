@@ -74,7 +74,7 @@ enum LockfileGraphPackage {
 struct LockfileNpmGraphPackage {
   /// Root ids that transitively reference this package.
   root_ids: HashSet<LockfilePkgId>,
-  integrity: String,
+  integrity: Option<String>,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   os: Vec<SmallStackString>,

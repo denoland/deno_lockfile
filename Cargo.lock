@@ -123,7 +123,7 @@ dependencies = [
 
 [[package]]
 name = "deno_lockfile"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "async-executor",
  "deno_semver",

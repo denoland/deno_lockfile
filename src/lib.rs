@@ -53,6 +53,7 @@ pub struct SetWorkspaceConfigOptions {
 pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: HashMap<String, WorkspaceMemberConfig>,
+  pub patches: HashMap<String, LockfilePatchContent>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -64,7 +65,8 @@ pub struct WorkspaceMemberConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpmPackageLockfileInfo {
   pub serialized_id: StackString,
-  pub integrity: String,
+  /// Will be `None` for patch packages.
+  pub integrity: Option<String>,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
   pub optional_dependencies: Vec<NpmPackageDependencyLockfileInfo>,
   pub os: Vec<SmallStackString>,
@@ -80,7 +82,8 @@ pub struct NpmPackageDependencyLockfileInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub struct NpmPackageInfo {
-  pub integrity: String,
+  /// Will be `None` for patch packages.
+  pub integrity: Option<String>,
   #[serde(default)]
   pub dependencies: BTreeMap<StackString, StackString>,
   #[serde(default)]
@@ -180,6 +183,20 @@ impl WorkspaceMemberConfigContent {
   }
 }
 
+#[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LockfilePatchContent {
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub dependencies: HashSet<JsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub peer_dependencies: HashSet<JsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "HashMap::is_empty")]
+  pub peer_dependencies_meta: HashMap<String, serde_json::Value>,
+}
+
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceConfigContent {
@@ -187,11 +204,13 @@ pub(crate) struct WorkspaceConfigContent {
   pub root: WorkspaceMemberConfigContent,
   #[serde(default)]
   pub members: HashMap<String, WorkspaceMemberConfigContent>,
+  #[serde(default)]
+  pub patches: HashMap<String, LockfilePatchContent>,
 }
 
 impl WorkspaceConfigContent {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty() && self.members.is_empty()
+    self.root.is_empty() && self.members.is_empty() && self.patches.is_empty()
   }
 
   fn get_all_dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
@@ -265,7 +284,7 @@ impl LockfileContent {
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct RawNpmPackageInfo {
-      pub integrity: String,
+      pub integrity: Option<String>,
       #[serde(default)]
       pub dependencies: Vec<StackString>,
       #[serde(default)]
@@ -699,6 +718,40 @@ impl Lockfile {
     // to !self.has_content_changed after populating it with this information
     let allow_content_changed =
       self.has_content_changed || !self.content.is_empty();
+
+    let has_any_patch_changed = options.config.patches.len()
+      != self.content.workspace.patches.len()
+      || !options.config.patches.is_empty()
+        && options.config.patches.iter().all(|(patch, new)| {
+          let Some(existing) = self.content.workspace.patches.get_mut(patch)
+          else {
+            return true;
+          };
+          new != existing
+        });
+
+    // if a patch changes, it's quite complicated to figure out how to get it to redo
+    // npm resolution just for that part, so for now, clear out all the npm dependencies
+    // if any patch changes
+    if has_any_patch_changed {
+      self.has_content_changed = true;
+      self.content.packages.npm.clear();
+      self
+        .content
+        .packages
+        .specifiers
+        .retain(|k, _| match k.kind {
+          deno_semver::package::PackageKind::Jsr => true,
+          deno_semver::package::PackageKind::Npm => false,
+        });
+      self.content.workspace.patches.clear();
+      self
+        .content
+        .workspace
+        .patches
+        .extend(options.config.patches);
+    }
+
     let old_deps = self
       .content
       .workspace
@@ -1215,7 +1268,7 @@ mod tests {
     // already in lockfile
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "nanoid@3.3.4".into(),
-      integrity: "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string(),
+      integrity: Some("sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
       os: vec![],
@@ -1228,7 +1281,7 @@ mod tests {
     // insert package that exists already, but has slightly different properties
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "picocolors@1.0.0".into(),
-      integrity: "sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string(),
+      integrity: Some("sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
       os: vec![],
@@ -1241,7 +1294,7 @@ mod tests {
     lockfile.has_content_changed = false;
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "source-map-js@1.0.2".into(),
-      integrity: "sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string(),
+      integrity: Some("sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
       os: vec![],
@@ -1259,7 +1312,7 @@ mod tests {
 
     let npm_package = NpmPackageLockfileInfo {
       serialized_id: "source-map-js@1.0.2".into(),
-      integrity: "sha512-foobar".to_string(),
+      integrity: Some("sha512-foobar".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
       os: vec![],
