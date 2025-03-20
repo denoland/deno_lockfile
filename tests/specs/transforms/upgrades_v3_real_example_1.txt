@@ -342,7 +342,7 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@deno/cache-dir@0.8": "0.8.0",
     "jsr:@deno/dnt@~0.41.2": "0.41.2",

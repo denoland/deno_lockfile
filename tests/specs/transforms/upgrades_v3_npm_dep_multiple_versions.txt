@@ -31,14 +31,26 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "npm": {
     "@a/pkg@2.1.5": {
       "integrity": "sha512-a1",
       "dependencies": [
         "@b/pkg",
         "@c/pkg@1.0.0"
-      ]
+      ],
+      "optionalDependencies": [
+        "@b/pkg"
+      ],
+      "os": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "cpu": [
+        "x86_64"
+      ],
+      "tarball": "https://fake-registry.com/a/pkg-2.1.5.tgz"
     },
     "@b/pkg@2.0.5": {
       "integrity": "sha512-b1",

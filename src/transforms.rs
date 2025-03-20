@@ -191,14 +191,13 @@ pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
   mut json: JsonMap,
   info_provider: &T,
 ) -> Result<JsonMap, TransformError> {
-  eprintln!("transform4_to_5");
   json.insert("version".into(), "5".into());
 
   if let Some(Value::Object(mut npm)) = json.remove("npm") {
     let mut npm_packages = Vec::new();
     let mut keys = Vec::new();
     for (key, _) in &npm {
-      let Some((name, version)) = extract_nv_from_id(&key) else {
+      let Some((name, version)) = extract_nv_from_id(key) else {
         continue;
       };
       let Ok(version) = Version::parse_standard(version) else {
@@ -210,14 +209,12 @@ pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
       });
       keys.push(key.clone());
     }
-    eprintln!("trying to get npm package info");
     let results = info_provider
       .get_npm_package_info(&npm_packages)
       .await
       .map_err(|source| TransformError::FailedGettingNpmPackageInfo {
         source,
       })?;
-    eprintln!("got npm package info");
     for (key, result) in keys.iter().zip(results) {
       let Some(Value::Object(value)) = npm.get_mut(key) else {
         continue;
@@ -230,7 +227,7 @@ pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
       }
       if !result.optional_dependencies.is_empty() {
         value.insert(
-          "optional_dependencies".into(),
+          "optionalDependencies".into(),
           result.optional_dependencies.into(),
         );
       }
@@ -250,7 +247,8 @@ pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
   Ok(json)
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Lockfile5NpmInfo {
   pub tarball_url: Option<String>,
   pub optional_dependencies: Vec<String>,
@@ -523,30 +521,28 @@ mod test {
       ];
       let data = serde_json::from_value(json!({
         "version": "4",
-        "packages": {
-          "npm": {
-            "package-a@3.3.4": {
-              "integrity": "sha512-foobar",
-              "dependencies": [
-                "package-b@1.0.0",
-                "package-c@1.0.0",
-                "package-d@1.0.0",
-                "package-e@1.0.0",
-              ]
-            },
-            "package-b@1.0.0": {
-              "integrity": "sha512-foobar",
-            },
-            "package-c@1.0.0": {
-              "integrity": "sha512-foobar",
-            },
-            "package-d@1.0.0": {
-              "integrity": "sha512-foobar",
-            },
-            "package-e@1.0.0": {
-              "integrity": "sha512-foobar",
-            },
-          }
+        "npm": {
+          "package-a@3.3.4": {
+            "integrity": "sha512-foobar",
+            "dependencies": [
+              "package-b@1.0.0",
+              "package-c@1.0.0",
+              "package-d@1.0.0",
+              "package-e@1.0.0",
+            ]
+          },
+          "package-b@1.0.0": {
+            "integrity": "sha512-foobar",
+          },
+          "package-c@1.0.0": {
+            "integrity": "sha512-foobar",
+          },
+          "package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+          },
+          "package-e@1.0.0": {
+            "integrity": "sha512-foobar",
+          },
         }
       }))
       .unwrap();
@@ -561,39 +557,37 @@ mod test {
     });
     assert_eq!(result, serde_json::from_value(json!({
       "version": "5",
-      "packages": {
-        "npm": {
-          "package-a@3.3.4": {
-            "integrity": "sha512-foobar",
-            "dependencies": [
-              "package-b@1.0.0",
-              "package-c@1.0.0",
-              "package-d@1.0.0",
-              "package-e@1.0.0",
-            ],
-            "cpu": ["x86_64"],
-          },
-          "package-b@1.0.0": {
-            "integrity": "sha512-foobar",
-            "cpu": ["x86_64"],
-          },
-          "package-c@1.0.0": {
-            "integrity": "sha512-foobar",
-            "tarball": "https://registry.npmjs.org/package-c/-/package-c-1.0.0.tgz",
-            "optional_dependencies": ["opt-dep-1"],
-          },
-          "package-d@1.0.0": {
-            "integrity": "sha512-foobar",
-            "os": ["darwin", "linux"],
-            "optional_dependencies": ["opt-dep-2", "opt-dep-3"],
-          },
-          "package-e@1.0.0": {
-            "integrity": "sha512-foobar",
-            "tarball": "https://registry.npmjs.org/package-e/-/package-e-1.0.0.tgz",
-            "cpu": ["arm64"],
-            "os": ["win32"],
-          },
-        }
+      "npm": {
+        "package-a@3.3.4": {
+          "cpu": ["x86_64"],
+          "integrity": "sha512-foobar",
+          "dependencies": [
+            "package-b@1.0.0",
+            "package-c@1.0.0",
+            "package-d@1.0.0",
+            "package-e@1.0.0",
+          ],
+        },
+        "package-b@1.0.0": {
+          "integrity": "sha512-foobar",
+          "cpu": ["x86_64"],
+        },
+        "package-c@1.0.0": {
+          "integrity": "sha512-foobar",
+          "tarball": "https://registry.npmjs.org/package-c/-/package-c-1.0.0.tgz",
+          "optionalDependencies": ["opt-dep-1"],
+        },
+        "package-d@1.0.0": {
+          "integrity": "sha512-foobar",
+          "os": ["darwin", "linux"],
+          "optionalDependencies": ["opt-dep-2", "opt-dep-3"],
+        },
+        "package-e@1.0.0": {
+          "integrity": "sha512-foobar",
+          "tarball": "https://registry.npmjs.org/package-e/-/package-e-1.0.0.tgz",
+          "cpu": ["arm64"],
+          "os": ["win32"],
+        },
       }
     })).unwrap());
   }

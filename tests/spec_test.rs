@@ -1,11 +1,13 @@
 // Copyright 2018-2024 the Deno authors. MIT license.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::panic::UnwindSafe;
+use std::path::PathBuf;
 
 use deno_lockfile::Lockfile;
 use deno_lockfile::Lockfile5NpmInfo;
@@ -200,26 +202,40 @@ async fn config_changes_test(test: &CollectedTest) {
 }
 
 struct TestNpmPackageInfoProvider {
-  cache: HashMap<PackageNv, Lockfile5NpmInfo>,
+  cache: RefCell<HashMap<PackageNv, Lockfile5NpmInfo>>,
 }
 
 impl Default for TestNpmPackageInfoProvider {
   fn default() -> Self {
     Self {
-      cache: HashMap::new(),
+      cache: RefCell::new(HashMap::new()),
     }
   }
 }
 
-#[derive(Debug)]
-struct PackageNotFound(PackageNv);
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Dist {
+  tarball: String,
+}
 
-impl std::error::Error for PackageNotFound {}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionInfo {
+  dist: Dist,
+  #[serde(default)]
+  cpu: Vec<String>,
+  #[serde(default)]
+  os: Vec<String>,
+  #[serde(default)]
+  optional_dependencies: HashMap<String, String>,
+}
 
-impl std::fmt::Display for PackageNotFound {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Package not found: {}", self.0)
-  }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageInfo {
+  versions: HashMap<String, VersionInfo>,
+  #[serde(rename = "dist-tags")]
+  dist_tags: HashMap<String, String>,
 }
 
 impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
@@ -231,15 +247,45 @@ impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
     async move {
       let mut infos = Vec::with_capacity(packages.len());
       for package in packages {
-        if let Some(info) = self.cache.get(package) {
-          infos.push(info.clone());
+        let info = {
+          let info = self.cache.borrow().get(package).cloned();
+          info
+        };
+        if let Some(info) = info {
+          infos.push(info);
         } else {
-          return Err(Box::new(PackageNotFound(package.clone())) as _);
+          let path = package_file_path(package);
+          if path.exists() {
+            let text = std::fs::read_to_string(path).unwrap();
+            let info: Lockfile5NpmInfo = serde_json::from_str(&text).unwrap();
+
+            self
+              .cache
+              .borrow_mut()
+              .insert(package.clone(), info.clone());
+            infos.push(info);
+          } else {
+            infos.push(Default::default());
+          }
         }
       }
       Ok(infos)
     }
   }
+}
+
+fn package_file_path(package: &PackageNv) -> PathBuf {
+  PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("tests/registry_data/")
+    .join(package_file_name(package))
+}
+
+fn package_file_name(package: &PackageNv) -> String {
+  format!(
+    "{}@{}.json",
+    package.name.replace("/", "__"),
+    package.version
+  )
 }
 
 async fn transforms_test(test: &CollectedTest) -> TestResult {
@@ -248,8 +294,6 @@ async fn transforms_test(test: &CollectedTest) -> TestResult {
   assert_eq!(sections.len(), 2);
   let original_section = sections.remove(0);
   let mut expected_section = sections.remove(0);
-  eprintln!("original_section: {}", original_section.text);
-  eprintln!("expected_section: {}", expected_section.text);
   let lockfile = Lockfile::new(
     NewLockfileOptions {
       file_path: test.path.with_extension("lock"),

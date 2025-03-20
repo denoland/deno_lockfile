@@ -25,12 +25,13 @@ struct SerializedJsrPkg<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SerializedNpmPkg<'a> {
   integrity: &'a str,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   dependencies: Vec<Cow<'a, str>>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  optional_dependencies: Vec<usize>,
+  optional_dependencies: Vec<Cow<'a, str>>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   os: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -103,7 +104,7 @@ impl SerializedWorkspaceConfigContent<'_> {
 }
 
 #[derive(Serialize)]
-struct LockfileV4<'a> {
+struct LockfileV5<'a> {
   // order these based on auditability
   version: &'static str,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -120,7 +121,7 @@ struct LockfileV4<'a> {
   workspace: SerializedWorkspaceConfigContent<'a>,
 }
 
-pub fn print_v4_content(content: &LockfileContent) -> String {
+pub fn print_v5_content(content: &LockfileContent) -> String {
   fn handle_jsr<'a>(
     jsr: &'a BTreeMap<PackageNv, JsrPackageInfo>,
     specifiers: &HashMap<JsrDepPackageReq, SmallStackString>,
@@ -204,39 +205,38 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
         .or_default();
     }
 
+    fn handle_deps<'a>(
+      deps: &'a BTreeMap<StackString, StackString>,
+      pkg_had_multiple_versions: &HashMap<&str, bool>,
+    ) -> Vec<Cow<'a, str>> {
+      deps
+        .iter()
+        .filter_map(|(key, id)| {
+          let (name, version) = extract_nv_from_id(id)?;
+          if name == key {
+            let has_single_version = pkg_had_multiple_versions
+              .get(name)
+              .map(|had_multiple| !had_multiple)
+              .unwrap_or(false);
+            if has_single_version {
+              Some(Cow::Borrowed(name))
+            } else {
+              Some(Cow::Borrowed(id))
+            }
+          } else {
+            Some(Cow::Owned(format!("{}@npm:{}@{}", key, name, version)))
+          }
+        })
+        .collect::<Vec<_>>()
+    }
+
     npm
       .iter()
       .map(|(key, value)| {
-        let dependencies = value
-          .dependencies
-          .iter()
-          .filter_map(|(key, id)| {
-            let (name, version) = extract_nv_from_id(id)?;
-            if name == key {
-              let has_single_version = pkg_had_multiple_versions
-                .get(name)
-                .map(|had_multiple| !had_multiple)
-                .unwrap_or(false);
-              if has_single_version {
-                Some(Cow::Borrowed(name))
-              } else {
-                Some(Cow::Borrowed(id))
-              }
-            } else {
-              Some(Cow::Owned(format!("{}@npm:{}@{}", key, name, version)))
-            }
-          })
-          .collect::<Vec<_>>();
-        let indices = dependencies
-          .iter()
-          .enumerate()
-          .map(|(i, dep)| (dep, i))
-          .collect::<HashMap<_, _>>();
-        let optional_dependencies = value
-          .optional_dependencies
-          .iter()
-          .map(|dep| indices[&Cow::Borrowed(dep.as_str())])
-          .collect();
+        let dependencies =
+          handle_deps(&value.dependencies, &pkg_had_multiple_versions);
+        let optional_dependencies =
+          handle_deps(&value.optional_dependencies, &pkg_had_multiple_versions);
         (
           key.as_str(),
           SerializedNpmPkg {
@@ -301,8 +301,8 @@ pub fn print_v4_content(content: &LockfileContent) -> String {
     specifiers.insert(SerializedJsrDepPackageReq::new(key), value.as_str());
   }
 
-  let lockfile = LockfileV4 {
-    version: "4",
+  let lockfile = LockfileV5 {
+    version: "5",
     specifiers,
     jsr: handle_jsr(&content.packages.jsr, &content.packages.specifiers),
     npm: handle_npm(&content.packages.npm),

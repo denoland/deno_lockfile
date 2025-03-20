@@ -10,7 +10,6 @@ use std::borrow::Cow;
 use std::collections::btree_map::Entry as BTreeMapEntry;
 use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -67,7 +66,7 @@ pub struct NpmPackageLockfileInfo {
   pub serialized_id: StackString,
   pub integrity: String,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
-  pub optional_dependencies: Vec<StackString>,
+  pub optional_dependencies: Vec<NpmPackageDependencyLockfileInfo>,
   pub os: Vec<SmallStackString>,
   pub cpu: Vec<SmallStackString>,
   pub tarball: Option<StackString>,
@@ -85,7 +84,7 @@ pub struct NpmPackageInfo {
   #[serde(default)]
   pub dependencies: BTreeMap<StackString, StackString>,
   #[serde(default)]
-  pub optional_dependencies: BTreeSet<StackString>,
+  pub optional_dependencies: BTreeMap<StackString, StackString>,
   pub os: Vec<SmallStackString>,
   pub cpu: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -226,6 +225,43 @@ impl LockfileContent {
       Some((name, version))
     }
 
+    fn handle_dep(
+      dep: StackString,
+      version_by_dep_name: &HashMap<StackString, StackString>,
+      dependencies: &mut BTreeMap<StackString, StackString>,
+    ) -> Result<(), DeserializationError> {
+      let (left, right) = match extract_nv_from_id(&dep) {
+        Some((name, version)) => (name, version),
+        None => match version_by_dep_name.get(&dep) {
+          Some(version) => (dep.as_str(), version.as_str()),
+          None => return Err(DeserializationError::MissingPackage(dep)),
+        },
+      };
+      let (key, package_name, version) = match right.strip_prefix("npm:") {
+        Some(right) => {
+          // ex. key@npm:package-a@version
+          match extract_nv_from_id(right) {
+            Some((package_name, version)) => (left, package_name, version),
+            None => {
+              return Err(DeserializationError::InvalidNpmPackageDependency(
+                dep,
+              ));
+            }
+          }
+        }
+        None => (left, left, right),
+      };
+      dependencies.insert(key.into(), {
+        let mut text =
+          StackString::with_capacity(package_name.len() + 1 + version.len());
+        text.push_str(package_name);
+        text.push('@');
+        text.push_str(version);
+        text
+      });
+      Ok(())
+    }
+
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct RawNpmPackageInfo {
@@ -233,7 +269,7 @@ impl LockfileContent {
       #[serde(default)]
       pub dependencies: Vec<StackString>,
       #[serde(default)]
-      pub optional_dependencies: Vec<usize>,
+      pub optional_dependencies: Vec<StackString>,
       #[serde(default)]
       pub os: Vec<SmallStackString>,
       #[serde(default)]
@@ -297,53 +333,18 @@ impl LockfileContent {
           for (key, value) in raw_npm {
             let mut dependencies: BTreeMap<StackString, StackString> =
               BTreeMap::new();
-            let mut optional_dependencies = BTreeSet::new();
-            let optional_set = value
-              .optional_dependencies
-              .into_iter()
-              .collect::<BTreeSet<_>>();
-            for (idx, dep) in value.dependencies.into_iter().enumerate() {
-              let (left, right) = match extract_nv_from_id(&dep) {
-                Some((name, version)) => (name, version),
-                None => match version_by_dep_name.get(&dep) {
-                  Some(version) => (dep.as_str(), version.as_str()),
-                  None => {
-                    return Err(DeserializationError::MissingPackage(dep))
-                  }
-                },
-              };
-              let (key, package_name, version) = match right
-                .strip_prefix("npm:")
-              {
-                Some(right) => {
-                  // ex. key@npm:package-a@version
-                  match extract_nv_from_id(right) {
-                    Some((package_name, version)) => {
-                      (left, package_name, version)
-                    }
-                    None => {
-                      return Err(
-                        DeserializationError::InvalidNpmPackageDependency(dep),
-                      );
-                    }
-                  }
-                }
-                None => (left, left, right),
-              };
-              dependencies.insert(key.into(), {
-                let mut text = StackString::with_capacity(
-                  package_name.len() + 1 + version.len(),
-                );
-                text.push_str(package_name);
-                text.push('@');
-                text.push_str(version);
-                text
-              });
-              if optional_set.contains(&idx) {
-                optional_dependencies.insert(StackString::from_string(
-                  format!("{}@{}", package_name, version),
-                ));
-              }
+            let mut optional_dependencies =
+              BTreeMap::<StackString, StackString>::new();
+
+            for dep in value.dependencies.into_iter() {
+              handle_dep(dep, &version_by_dep_name, &mut dependencies)?;
+            }
+            for dep in value.optional_dependencies.into_iter() {
+              handle_dep(
+                dep,
+                &version_by_dep_name,
+                &mut optional_dependencies,
+              )?;
             }
             npm.insert(
               key,
@@ -474,7 +475,6 @@ impl Lockfile {
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
-      eprintln!("version: {:?}", version);
       let value = match version {
         Some("5") => value,
         Some("4") => transforms::transform4_to_5(value, provider).await?,
@@ -602,7 +602,7 @@ impl Lockfile {
   }
 
   pub fn as_json_string(&self) -> String {
-    let mut text = printer::print_v4_content(&self.content);
+    let mut text = printer::print_v5_content(&self.content);
     text.reserve(1);
     text.push('\n');
     text
@@ -824,8 +824,11 @@ impl Lockfile {
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
   pub fn insert_npm_package(&mut self, package_info: NpmPackageLockfileInfo) {
-    let optional_dependencies =
-      package_info.optional_dependencies.into_iter().collect();
+    let optional_dependencies = package_info
+      .optional_dependencies
+      .into_iter()
+      .map(|dep| (dep.name, dep.id))
+      .collect::<BTreeMap<StackString, StackString>>();
     let dependencies = package_info
       .dependencies
       .into_iter()
@@ -1016,9 +1019,27 @@ mod tests {
   fn new_lockfile(
     options: NewLockfileOptions,
   ) -> Result<Lockfile, Box<LockfileError>> {
-    Lockfile::new(options, &TestNpmPackageInfoProvider::default())
-      .now_or_never()
-      .unwrap()
+    Lockfile::new(
+      options,
+      &TestNpmPackageInfoProvider {
+        cache: HashMap::from_iter([
+          (
+            PackageNv::from_str("nanoid@3.3.4").unwrap(),
+            Lockfile5NpmInfo {
+              ..Default::default()
+            },
+          ),
+          (
+            PackageNv::from_str("picocolors@1.0.0").unwrap(),
+            Lockfile5NpmInfo {
+              ..Default::default()
+            },
+          ),
+        ]),
+      },
+    )
+    .now_or_never()
+    .unwrap()
   }
   fn setup(overwrite: bool) -> Result<Lockfile, Box<LockfileError>> {
     let file_path =
@@ -1271,7 +1292,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "4",
+  "version": "5",
   "redirects": {
     "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
@@ -1311,7 +1332,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "4",
+  "version": "5",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.1/mod.ts",
     "https://deno.land/x/std/other.ts": "https://deno.land/std@0.190.1/other.ts"
@@ -1351,7 +1372,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@foo/bar@2": "jsr:@foo/bar@2.1.2",
     "jsr:path@*": "jsr:@std/path@0.75.1"

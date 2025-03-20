@@ -76,7 +76,7 @@ struct LockfileNpmGraphPackage {
   root_ids: HashSet<LockfilePkgId>,
   integrity: String,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
-  optional_dependencies: BTreeSet<LockfileNpmPackageId>,
+  optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   os: Vec<SmallStackString>,
   cpu: Vec<SmallStackString>,
   tarball: Option<StackString>,
@@ -170,7 +170,9 @@ impl LockfilePackageGraph {
           optional_dependencies: package
             .optional_dependencies
             .iter()
-            .map(|dep_id| LockfileNpmPackageId(dep_id.clone()))
+            .map(|(name, dep_id)| {
+              (name.clone(), LockfileNpmPackageId(dep_id.clone()))
+            })
             .collect(),
           cpu: package.cpu.clone(),
           os: package.os.clone(),
@@ -376,7 +378,7 @@ impl LockfilePackageGraph {
               optional_dependencies: package
                 .optional_dependencies
                 .into_iter()
-                .map(|id| id.0)
+                .map(|(name, id)| (name, id.0))
                 .collect(),
             },
           );
