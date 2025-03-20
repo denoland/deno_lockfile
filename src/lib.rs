@@ -1006,17 +1006,9 @@ mod tests {
   use deno_semver::package::PackageReq;
   use futures::FutureExt;
   use pretty_assertions::assert_eq;
-
+  #[derive(Default)]
   struct TestNpmPackageInfoProvider {
     cache: HashMap<PackageNv, Lockfile5NpmInfo>,
-  }
-
-  impl Default for TestNpmPackageInfoProvider {
-    fn default() -> Self {
-      Self {
-        cache: Default::default(),
-      }
-    }
   }
 
   #[derive(Debug)]
@@ -1031,23 +1023,19 @@ mod tests {
   impl std::error::Error for PackageNotFound {}
 
   impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
-    fn get_npm_package_info(
+    async fn get_npm_package_info(
       &self,
       packages: &[PackageNv],
-    ) -> impl std::future::Future<
-      Output = Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>>,
-    > {
-      async move {
-        let mut infos = Vec::with_capacity(packages.len());
-        for package in packages {
-          if let Some(info) = self.cache.get(package) {
-            infos.push(info.clone());
-          } else {
-            return Err(Box::new(PackageNotFound(package.clone())) as _);
-          }
+    ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>> {
+      let mut infos = Vec::with_capacity(packages.len());
+      for package in packages {
+        if let Some(info) = self.cache.get(package) {
+          infos.push(info.clone());
+        } else {
+          return Err(Box::new(PackageNotFound(package.clone())) as _);
         }
-        Ok(infos)
       }
+      Ok(infos)
     }
   }
 

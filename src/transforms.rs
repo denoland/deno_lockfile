@@ -187,6 +187,12 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
   Ok(json)
 }
 
+#[derive(Debug, Error)]
+#[error(
+  "Expected a different number of results from npm package info provider."
+)]
+pub struct MissingNpmPackageInfo;
+
 pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
   mut json: JsonMap,
   info_provider: &T,
@@ -215,6 +221,11 @@ pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
       .map_err(|source| TransformError::FailedGettingNpmPackageInfo {
         source,
       })?;
+    if results.len() != keys.len() {
+      return Err(TransformError::FailedGettingNpmPackageInfo {
+        source: Box::new(MissingNpmPackageInfo),
+      });
+    }
     for (key, result) in keys.iter().zip(results) {
       let Some(Value::Object(value)) = npm.get_mut(key) else {
         continue;
@@ -440,7 +451,7 @@ mod test {
 
   fn run_async<T: Send + Sync>(f: impl Future<Output = T> + Send + Sync) -> T {
     let executor = Executor::new();
-    let handle = executor.run(async move { f.await });
+    let handle = executor.run(f);
     futures_lite::future::block_on(handle)
   }
 

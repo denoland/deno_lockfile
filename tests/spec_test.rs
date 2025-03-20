@@ -278,38 +278,35 @@ struct PackageInfo {
 }
 
 impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
-  fn get_npm_package_info(
+  async fn get_npm_package_info(
     &self,
     packages: &[PackageNv],
-  ) -> impl Future<Output = Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>>>
-  {
-    async move {
-      let mut infos = Vec::with_capacity(packages.len());
-      for package in packages {
-        let info = {
-          let info = self.cache.borrow().get(package).cloned();
-          info
-        };
-        if let Some(info) = info {
+  ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>> {
+    let mut infos = Vec::with_capacity(packages.len());
+    for package in packages {
+      let info = {
+        let info = self.cache.borrow().get(package).cloned();
+        info
+      };
+      if let Some(info) = info {
+        infos.push(info);
+      } else {
+        let path = package_file_path(package);
+        if path.exists() {
+          let text = std::fs::read_to_string(path).unwrap();
+          let info: Lockfile5NpmInfo = serde_json::from_str(&text).unwrap();
+
+          self
+            .cache
+            .borrow_mut()
+            .insert(package.clone(), info.clone());
           infos.push(info);
         } else {
-          let path = package_file_path(package);
-          if path.exists() {
-            let text = std::fs::read_to_string(path).unwrap();
-            let info: Lockfile5NpmInfo = serde_json::from_str(&text).unwrap();
-
-            self
-              .cache
-              .borrow_mut()
-              .insert(package.clone(), info.clone());
-            infos.push(info);
-          } else {
-            infos.push(Default::default());
-          }
+          infos.push(Default::default());
         }
       }
-      Ok(infos)
     }
+    Ok(infos)
   }
 }
 
