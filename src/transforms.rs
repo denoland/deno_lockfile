@@ -191,62 +191,60 @@ pub async fn transform4_to_5<T: NpmPackageInfoProvider>(
   mut json: JsonMap,
   info_provider: &T,
 ) -> Result<JsonMap, TransformError> {
+  eprintln!("transform4_to_5");
   json.insert("version".into(), "5".into());
 
-  if let Some(Value::Object(mut packages)) = json.remove("packages") {
-    if let Some(Value::Object(mut npm)) = packages.remove("npm") {
-      let mut npm_packages = Vec::new();
-      let mut keys = Vec::new();
-      for (key, _) in &npm {
-        let Some((name, version)) = extract_nv_from_id(&key) else {
-          continue;
-        };
-        let Ok(version) = Version::parse_standard(version) else {
-          continue;
-        };
-        npm_packages.push(PackageNv {
-          name: name.into(),
-          version,
-        });
-        keys.push(key.clone());
-      }
-      eprintln!("trying to get npm package info");
-      let results = info_provider
-        .get_npm_package_info(&npm_packages)
-        .await
-        .map_err(|source| TransformError::FailedGettingNpmPackageInfo {
-          source,
-        })?;
-      eprintln!("got npm package info");
-      for (key, result) in keys.iter().zip(results) {
-        let Some(Value::Object(value)) = npm.get_mut(key) else {
-          continue;
-        };
-
-        if let Some(Value::Array(deps)) = value.get("dependencies") {
-          if deps.is_empty() {
-            value.remove("dependencies");
-          }
-        }
-        if !result.optional_dependencies.is_empty() {
-          value.insert(
-            "optional_dependencies".into(),
-            result.optional_dependencies.into(),
-          );
-        }
-        if !result.cpu.is_empty() {
-          value.insert("cpu".into(), result.cpu.into());
-        }
-        if !result.os.is_empty() {
-          value.insert("os".into(), result.os.into());
-        }
-        if let Some(tarball_url) = result.tarball_url {
-          value.insert("tarball".into(), tarball_url.into());
-        }
-      }
-      packages.insert("npm".into(), npm.into());
+  if let Some(Value::Object(mut npm)) = json.remove("npm") {
+    let mut npm_packages = Vec::new();
+    let mut keys = Vec::new();
+    for (key, _) in &npm {
+      let Some((name, version)) = extract_nv_from_id(&key) else {
+        continue;
+      };
+      let Ok(version) = Version::parse_standard(version) else {
+        continue;
+      };
+      npm_packages.push(PackageNv {
+        name: name.into(),
+        version,
+      });
+      keys.push(key.clone());
     }
-    json.insert("packages".into(), packages.into());
+    eprintln!("trying to get npm package info");
+    let results = info_provider
+      .get_npm_package_info(&npm_packages)
+      .await
+      .map_err(|source| TransformError::FailedGettingNpmPackageInfo {
+        source,
+      })?;
+    eprintln!("got npm package info");
+    for (key, result) in keys.iter().zip(results) {
+      let Some(Value::Object(value)) = npm.get_mut(key) else {
+        continue;
+      };
+
+      if let Some(Value::Array(deps)) = value.get("dependencies") {
+        if deps.is_empty() {
+          value.remove("dependencies");
+        }
+      }
+      if !result.optional_dependencies.is_empty() {
+        value.insert(
+          "optional_dependencies".into(),
+          result.optional_dependencies.into(),
+        );
+      }
+      if !result.cpu.is_empty() {
+        value.insert("cpu".into(), result.cpu.into());
+      }
+      if !result.os.is_empty() {
+        value.insert("os".into(), result.os.into());
+      }
+      if let Some(tarball_url) = result.tarball_url {
+        value.insert("tarball".into(), tarball_url.into());
+      }
+    }
+    json.insert("npm".into(), npm.into());
   }
 
   Ok(json)

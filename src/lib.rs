@@ -29,7 +29,8 @@ mod transforms;
 pub use error::DeserializationError;
 pub use error::LockfileError;
 pub use error::LockfileErrorReason;
-use transforms::NpmPackageInfoProvider;
+pub use transforms::Lockfile5NpmInfo;
+pub use transforms::NpmPackageInfoProvider;
 
 use crate::graphs::LockfilePackageGraph;
 
@@ -461,7 +462,7 @@ impl Lockfile {
     }
   }
 
-  pub async fn new_maybe_transform(
+  pub async fn new(
     opts: NewLockfileOptions<'_>,
     provider: &impl NpmPackageInfoProvider,
   ) -> Result<Lockfile, Box<LockfileError>> {
@@ -473,16 +474,33 @@ impl Lockfile {
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
+      eprintln!("version: {:?}", version);
       let value = match version {
         Some("5") => value,
         Some("4") => transforms::transform4_to_5(value, provider).await?,
-        Some("3") => transforms::transform3_to_4(value)?,
-        Some("2") => {
-          transforms::transform3_to_4(transforms::transform2_to_3(value))?
+        Some("3") => {
+          transforms::transform4_to_5(
+            transforms::transform3_to_4(value)?,
+            provider,
+          )
+          .await?
         }
-        None => transforms::transform3_to_4(transforms::transform2_to_3(
-          transforms::transform1_to_2(value),
-        ))?,
+        Some("2") => {
+          transforms::transform4_to_5(
+            transforms::transform3_to_4(transforms::transform2_to_3(value))?,
+            provider,
+          )
+          .await?
+        }
+        None => {
+          transforms::transform4_to_5(
+            transforms::transform3_to_4(transforms::transform2_to_3(
+              transforms::transform1_to_2(value),
+            ))?,
+            provider,
+          )
+          .await?
+        }
         Some(version) => {
           return Err(LockfileErrorReason::UnsupportedVersion {
             version: version.to_string(),
@@ -526,7 +544,9 @@ impl Lockfile {
     })
   }
 
-  pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, Box<LockfileError>> {
+  pub fn new_current_version(
+    opts: NewLockfileOptions,
+  ) -> Result<Lockfile, Box<LockfileError>> {
     fn load_content(
       content: &str,
     ) -> Result<LockfileContent, LockfileErrorReason> {
@@ -928,7 +948,52 @@ impl Lockfile {
 mod tests {
   use super::*;
   use deno_semver::package::PackageReq;
+  use futures::FutureExt;
   use pretty_assertions::assert_eq;
+
+  struct TestNpmPackageInfoProvider {
+    cache: HashMap<PackageNv, Lockfile5NpmInfo>,
+  }
+
+  impl Default for TestNpmPackageInfoProvider {
+    fn default() -> Self {
+      Self {
+        cache: Default::default(),
+      }
+    }
+  }
+
+  #[derive(Debug)]
+  struct PackageNotFound(PackageNv);
+
+  impl std::fmt::Display for PackageNotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(f, "Package not found: {}", self.0)
+    }
+  }
+
+  impl std::error::Error for PackageNotFound {}
+
+  impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
+    fn get_npm_package_info(
+      &self,
+      packages: &[PackageNv],
+    ) -> impl std::future::Future<
+      Output = Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>>,
+    > {
+      async move {
+        let mut infos = Vec::with_capacity(packages.len());
+        for package in packages {
+          if let Some(info) = self.cache.get(package) {
+            infos.push(info.clone());
+          } else {
+            return Err(Box::new(PackageNotFound(package.clone())) as _);
+          }
+        }
+        Ok(infos)
+      }
+    }
+  }
 
   const LOCKFILE_JSON: &str = r#"
 {
@@ -948,10 +1013,17 @@ mod tests {
   }
 }"#;
 
+  fn new_lockfile(
+    options: NewLockfileOptions,
+  ) -> Result<Lockfile, Box<LockfileError>> {
+    Lockfile::new(options, &TestNpmPackageInfoProvider::default())
+      .now_or_never()
+      .unwrap()
+  }
   fn setup(overwrite: bool) -> Result<Lockfile, Box<LockfileError>> {
     let file_path =
       std::env::current_dir().unwrap().join("valid_lockfile.json");
-    Lockfile::new(NewLockfileOptions {
+    new_lockfile(NewLockfileOptions {
       file_path,
       content: LOCKFILE_JSON,
       overwrite,
@@ -961,7 +1033,7 @@ mod tests {
   #[test]
   fn future_version_unsupported() {
     let file_path = PathBuf::from("lockfile.json");
-    let err = Lockfile::new(NewLockfileOptions {
+    let err = new_lockfile(NewLockfileOptions {
       file_path,
       content: "{ \"version\": \"2000\" }",
       overwrite: false,
@@ -993,7 +1065,7 @@ mod tests {
   #[test]
   fn with_lockfile_content_for_valid_lockfile() {
     let file_path = PathBuf::from("/foo");
-    let result = Lockfile::new(NewLockfileOptions {
+    let result = new_lockfile(NewLockfileOptions {
       file_path,
       content: LOCKFILE_JSON,
       overwrite: false,
@@ -1180,7 +1252,7 @@ mod tests {
 
   #[test]
   fn lockfile_with_redirects() {
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
   "version": "4",
@@ -1211,7 +1283,7 @@ mod tests {
 
   #[test]
   fn test_insert_redirect() {
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
   "version": "4",
@@ -1251,7 +1323,7 @@ mod tests {
 
   #[test]
   fn test_insert_jsr() {
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
   "version": "4",
@@ -1296,7 +1368,7 @@ mod tests {
       "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
     }"#;
     let file_path = PathBuf::from("lockfile.json");
-    let lockfile = Lockfile::new(NewLockfileOptions {
+    let lockfile = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,
@@ -1330,7 +1402,7 @@ mod tests {
       }
     }"#;
     let file_path = PathBuf::from("lockfile.json");
-    let lockfile = Lockfile::new(NewLockfileOptions {
+    let lockfile = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,
@@ -1354,7 +1426,7 @@ mod tests {
       "remote": {}
     }"#;
     let file_path = PathBuf::from("lockfile.json");
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,
@@ -1403,7 +1475,7 @@ mod tests {
   fn empty_lockfile_nicer_error() {
     let content: &str = r#"  "#;
     let file_path = PathBuf::from("lockfile.json");
-    let err = Lockfile::new(NewLockfileOptions {
+    let err = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,

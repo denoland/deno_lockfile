@@ -2,10 +2,15 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::future::Future;
 use std::panic::AssertUnwindSafe;
+use std::panic::UnwindSafe;
 
 use deno_lockfile::Lockfile;
+use deno_lockfile::Lockfile5NpmInfo;
 use deno_lockfile::NewLockfileOptions;
+use deno_lockfile::NpmPackageInfoProvider;
 use deno_lockfile::PackagesContent;
 use deno_lockfile::SetWorkspaceConfigOptions;
 use deno_lockfile::WorkspaceConfig;
@@ -41,18 +46,38 @@ fn main() {
 
 fn run_test(test: &CollectedTest) -> TestResult {
   TestResult::from_maybe_panic_or_result(AssertUnwindSafe(|| {
-    if test.name.starts_with("specs::config_changes::") {
-      config_changes_test(test);
-      TestResult::Passed
-    } else if test.name.starts_with("specs::transforms::") {
-      transforms_test(test)
-    } else {
-      panic!("Unknown test: {}", test.name);
-    }
+    futures_lite::future::block_on(async_executor::Executor::new().run(
+      async move {
+        if test.name.starts_with("specs::config_changes::") {
+          config_changes_test(test).await;
+          TestResult::Passed
+        } else if test.name.starts_with("specs::transforms::") {
+          transforms_test(test).await
+        } else {
+          panic!("Unknown test: {}", test.name);
+        }
+      },
+    ))
   }))
 }
 
-fn config_changes_test(test: &CollectedTest) {
+fn from_maybe_panic_async<T>(
+  f: impl Future<Output = T> + UnwindSafe,
+) -> TestResult {
+  TestResult::from_maybe_panic(|| {
+    futures_lite::future::block_on(async_executor::Executor::new().run(f));
+  })
+}
+
+// fn from_maybe_panic_or_result_async<T>(
+//   f: impl Future<Output = TestResult> + UnwindSafe,
+// ) -> TestResult {
+//   TestResult::from_maybe_panic_or_result(|| {
+//     futures_lite::future::block_on(async_executor::Executor::new().run(f))
+//   })
+// }
+
+async fn config_changes_test(test: &CollectedTest) {
   #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
   struct LockfilePackageJsonContent {
@@ -114,11 +139,15 @@ fn config_changes_test(test: &CollectedTest) {
 
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
   let mut spec = ConfigChangeSpec::parse(&test.read_to_string().unwrap());
-  let mut lockfile = Lockfile::new(NewLockfileOptions {
-    file_path: test.path.with_extension("lock"),
-    content: &spec.original_text.text,
-    overwrite: false,
-  })
+  let mut lockfile = Lockfile::new(
+    NewLockfileOptions {
+      file_path: test.path.with_extension("lock"),
+      content: &spec.original_text.text,
+      overwrite: false,
+    },
+    &TestNpmPackageInfoProvider::default(),
+  )
+  .await
   .unwrap();
   for change_and_output in &mut spec.change_and_outputs {
     // setting the new workspace config should change the has_content_changed flag
@@ -170,17 +199,66 @@ fn config_changes_test(test: &CollectedTest) {
   }
 }
 
-fn transforms_test(test: &CollectedTest) -> TestResult {
+struct TestNpmPackageInfoProvider {
+  cache: HashMap<PackageNv, Lockfile5NpmInfo>,
+}
+
+impl Default for TestNpmPackageInfoProvider {
+  fn default() -> Self {
+    Self {
+      cache: HashMap::new(),
+    }
+  }
+}
+
+#[derive(Debug)]
+struct PackageNotFound(PackageNv);
+
+impl std::error::Error for PackageNotFound {}
+
+impl std::fmt::Display for PackageNotFound {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "Package not found: {}", self.0)
+  }
+}
+
+impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
+  fn get_npm_package_info(
+    &self,
+    packages: &[PackageNv],
+  ) -> impl Future<Output = Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>>>
+  {
+    async move {
+      let mut infos = Vec::with_capacity(packages.len());
+      for package in packages {
+        if let Some(info) = self.cache.get(package) {
+          infos.push(info.clone());
+        } else {
+          return Err(Box::new(PackageNotFound(package.clone())) as _);
+        }
+      }
+      Ok(infos)
+    }
+  }
+}
+
+async fn transforms_test(test: &CollectedTest) -> TestResult {
   let text = test.read_to_string().unwrap();
   let mut sections = SpecSection::parse_many(&text);
   assert_eq!(sections.len(), 2);
   let original_section = sections.remove(0);
   let mut expected_section = sections.remove(0);
-  let lockfile = Lockfile::new(NewLockfileOptions {
-    file_path: test.path.with_extension("lock"),
-    content: &original_section.text,
-    overwrite: false,
-  })
+  eprintln!("original_section: {}", original_section.text);
+  eprintln!("expected_section: {}", expected_section.text);
+  let lockfile = Lockfile::new(
+    NewLockfileOptions {
+      file_path: test.path.with_extension("lock"),
+      content: &original_section.text,
+      overwrite: false,
+    },
+    &TestNpmPackageInfoProvider::default(),
+  )
+  .await
   .unwrap();
   let actual_text = lockfile.as_json_string();
   let is_update = std::env::var("UPDATE") == Ok("1".to_string());
@@ -203,15 +281,19 @@ fn transforms_test(test: &CollectedTest) -> TestResult {
     // now try parsing the lockfile v4 output, then reserialize it and ensure it matches
     sub_tests.push(SubTestResult {
       name: "v4_reparse_and_emit".to_string(),
-      result: TestResult::from_maybe_panic(|| {
-        let lockfile: Lockfile = Lockfile::new(NewLockfileOptions {
-          file_path: test.path.with_extension("lock"),
-          content: &actual_text,
-          overwrite: false,
-        })
+      result: from_maybe_panic_async(AssertUnwindSafe(async {
+        let lockfile: Lockfile = Lockfile::new(
+          NewLockfileOptions {
+            file_path: test.path.with_extension("lock"),
+            content: &actual_text,
+            overwrite: false,
+          },
+          &TestNpmPackageInfoProvider::default(),
+        )
+        .await
         .unwrap();
         assert_eq!(lockfile.as_json_string().trim(), actual_text.trim());
-      }),
+      })),
     });
     TestResult::SubTests(sub_tests)
   }
