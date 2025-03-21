@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use deno_semver::{package::PackageNv, Version};
 use serde_json::Value;
@@ -281,9 +281,7 @@ pub async fn transform4_to_5(
       if let Some(Value::Array(deps)) = value.remove("dependencies") {
         existing_deps.extend(deps.iter().filter_map(|v| {
           let id = v.as_str().map(|s| s.to_string())?;
-          let Some(id_parts) = split_id(&id, &version_by_dep_name) else {
-            return None;
-          };
+          let id_parts = split_id(&id, &version_by_dep_name)?;
           Some((id_parts.key, id))
         }));
       }
@@ -542,7 +540,7 @@ mod test {
             self
               .packages
               .get(v)
-              .expect(format!("no info for {v}").as_str())
+              .unwrap_or_else(|| panic!("no info for {v}"))
               .clone()
           })
           .collect(),
