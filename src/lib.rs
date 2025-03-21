@@ -484,11 +484,11 @@ impl Lockfile {
 
   pub async fn new(
     opts: NewLockfileOptions<'_>,
-    provider: &impl NpmPackageInfoProvider,
+    provider: &dyn NpmPackageInfoProvider,
   ) -> Result<Lockfile, Box<LockfileError>> {
     async fn load_content(
       content: &str,
-      provider: &impl NpmPackageInfoProvider,
+      provider: &dyn NpmPackageInfoProvider,
     ) -> Result<LockfileContent, LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
@@ -1022,11 +1022,13 @@ mod tests {
 
   impl std::error::Error for PackageNotFound {}
 
+  #[async_trait::async_trait(?Send)]
   impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
     async fn get_npm_package_info(
       &self,
       packages: &[PackageNv],
-    ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error + Send + Sync>>
+    {
       let mut infos = Vec::with_capacity(packages.len());
       for package in packages {
         if let Some(info) = self.cache.get(package) {

@@ -976,8 +976,7 @@
       "dependencies": [
         "caniuse-lite",
         "electron-to-chromium",
-        "node-releases",
-        "update-browserslist-db"
+        "node-releases"
       ]
     },
     "caniuse-api@3.0.0": {

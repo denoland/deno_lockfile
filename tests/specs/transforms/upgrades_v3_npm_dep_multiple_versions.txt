@@ -36,7 +36,6 @@
     "@a/pkg@2.1.5": {
       "integrity": "sha512-a1",
       "dependencies": [
-        "@b/pkg",
         "@c/pkg@1.0.0"
       ],
       "optionalDependencies": [

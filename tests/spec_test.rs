@@ -277,11 +277,13 @@ struct PackageInfo {
   dist_tags: HashMap<String, String>,
 }
 
+#[async_trait::async_trait(?Send)]
 impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
   async fn get_npm_package_info(
     &self,
     packages: &[PackageNv],
-  ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error>> {
+  ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error + Send + Sync>>
+  {
     let mut infos = Vec::with_capacity(packages.len());
     for package in packages {
       let info = {

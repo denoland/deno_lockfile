@@ -3,7 +3,7 @@
   "version": "3",
   "packages": {
     "npm": {
-      "@a/pkg@2.1.5": {
+      "@aa/pkg@2.1.5": {
         "integrity": "sha512-a1",
         "dependencies": {
           "other_name": "@b/pkg@2.0.5"
@@ -22,13 +22,10 @@
 {
   "version": "5",
   "npm": {
-    "@a/pkg@2.1.5": {
+    "@aa/pkg@2.1.5": {
       "integrity": "sha512-a1",
-      "dependencies": [
-        "other_name@npm:@b/pkg@2.0.5"
-      ],
       "optionalDependencies": [
-        "@b/pkg"
+        "other_name@npm:@b/pkg@2.0.5"
       ],
       "os": [
         "darwin",
