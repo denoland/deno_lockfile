@@ -33,7 +33,7 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@std/assert@0.218": "0.218.2",
     "jsr:@std/assert@~0.218.2": "0.218.2",

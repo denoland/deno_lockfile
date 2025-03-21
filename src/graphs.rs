@@ -76,6 +76,10 @@ struct LockfileNpmGraphPackage {
   root_ids: HashSet<LockfilePkgId>,
   integrity: Option<String>,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
+  optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
+  os: Vec<SmallStackString>,
+  cpu: Vec<SmallStackString>,
+  tarball: Option<StackString>,
 }
 
 #[derive(Debug)]
@@ -163,6 +167,16 @@ impl LockfilePackageGraph {
               (key.clone(), LockfileNpmPackageId(dep_id.clone()))
             })
             .collect(),
+          optional_dependencies: package
+            .optional_dependencies
+            .iter()
+            .map(|(name, dep_id)| {
+              (name.clone(), LockfileNpmPackageId(dep_id.clone()))
+            })
+            .collect(),
+          cpu: package.cpu.clone(),
+          os: package.os.clone(),
+          tarball: package.tarball.clone(),
         }),
       );
     }
@@ -336,7 +350,7 @@ impl LockfilePackageGraph {
               LockfilePkgId::Npm(_) => unreachable!(),
             },
             crate::JsrPackageInfo {
-              integrity: package.integrity.clone(),
+              integrity: package.integrity,
               dependencies: package
                 .dependencies
                 .into_iter()
@@ -352,9 +366,17 @@ impl LockfilePackageGraph {
               LockfilePkgId::Npm(id) => id.0,
             },
             NpmPackageInfo {
-              integrity: package.integrity.clone(),
+              integrity: package.integrity,
               dependencies: package
                 .dependencies
+                .into_iter()
+                .map(|(name, id)| (name, id.0))
+                .collect(),
+              cpu: package.cpu,
+              os: package.os,
+              tarball: package.tarball.clone(),
+              optional_dependencies: package
+                .optional_dependencies
                 .into_iter()
                 .map(|(name, id)| (name, id.0))
                 .collect(),

@@ -28,6 +28,8 @@ mod transforms;
 pub use error::DeserializationError;
 pub use error::LockfileError;
 pub use error::LockfileErrorReason;
+pub use transforms::Lockfile5NpmInfo;
+pub use transforms::NpmPackageInfoProvider;
 
 use crate::graphs::LockfilePackageGraph;
 
@@ -66,6 +68,10 @@ pub struct NpmPackageLockfileInfo {
   /// Will be `None` for patch packages.
   pub integrity: Option<String>,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
+  pub optional_dependencies: Vec<NpmPackageDependencyLockfileInfo>,
+  pub os: Vec<SmallStackString>,
+  pub cpu: Vec<SmallStackString>,
+  pub tarball: Option<StackString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +86,18 @@ pub struct NpmPackageInfo {
   pub integrity: Option<String>,
   #[serde(default)]
   pub dependencies: BTreeMap<StackString, StackString>,
+  #[serde(default)]
+  pub optional_dependencies: BTreeMap<StackString, StackString>,
+  pub os: Vec<SmallStackString>,
+  pub cpu: Vec<SmallStackString>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tarball: Option<StackString>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub struct NpmPackageDist {
+  pub shasum: String,
+  pub integrity: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -226,11 +244,57 @@ impl LockfileContent {
       Some((name, version))
     }
 
+    fn handle_dep(
+      dep: StackString,
+      version_by_dep_name: &HashMap<StackString, StackString>,
+      dependencies: &mut BTreeMap<StackString, StackString>,
+    ) -> Result<(), DeserializationError> {
+      let (left, right) = match extract_nv_from_id(&dep) {
+        Some((name, version)) => (name, version),
+        None => match version_by_dep_name.get(&dep) {
+          Some(version) => (dep.as_str(), version.as_str()),
+          None => return Err(DeserializationError::MissingPackage(dep)),
+        },
+      };
+      let (key, package_name, version) = match right.strip_prefix("npm:") {
+        Some(right) => {
+          // ex. key@npm:package-a@version
+          match extract_nv_from_id(right) {
+            Some((package_name, version)) => (left, package_name, version),
+            None => {
+              return Err(DeserializationError::InvalidNpmPackageDependency(
+                dep,
+              ));
+            }
+          }
+        }
+        None => (left, left, right),
+      };
+      dependencies.insert(key.into(), {
+        let mut text =
+          StackString::with_capacity(package_name.len() + 1 + version.len());
+        text.push_str(package_name);
+        text.push('@');
+        text.push_str(version);
+        text
+      });
+      Ok(())
+    }
+
     #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct RawNpmPackageInfo {
       pub integrity: Option<String>,
       #[serde(default)]
       pub dependencies: Vec<StackString>,
+      #[serde(default)]
+      pub optional_dependencies: Vec<StackString>,
+      #[serde(default)]
+      pub os: Vec<SmallStackString>,
+      #[serde(default)]
+      pub cpu: Vec<SmallStackString>,
+      #[serde(skip_serializing_if = "Option::is_none")]
+      pub tarball: Option<StackString>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -288,49 +352,28 @@ impl LockfileContent {
           for (key, value) in raw_npm {
             let mut dependencies: BTreeMap<StackString, StackString> =
               BTreeMap::new();
-            for dep in value.dependencies {
-              let (left, right) = match extract_nv_from_id(&dep) {
-                Some((name, version)) => (name, version),
-                None => match version_by_dep_name.get(&dep) {
-                  Some(version) => (dep.as_str(), version.as_str()),
-                  None => {
-                    return Err(DeserializationError::MissingPackage(dep))
-                  }
-                },
-              };
-              let (key, package_name, version) = match right
-                .strip_prefix("npm:")
-              {
-                Some(right) => {
-                  // ex. key@npm:package-a@version
-                  match extract_nv_from_id(right) {
-                    Some((package_name, version)) => {
-                      (left, package_name, version)
-                    }
-                    None => {
-                      return Err(
-                        DeserializationError::InvalidNpmPackageDependency(dep),
-                      );
-                    }
-                  }
-                }
-                None => (left, left, right),
-              };
-              dependencies.insert(key.into(), {
-                let mut text = StackString::with_capacity(
-                  package_name.len() + 1 + version.len(),
-                );
-                text.push_str(package_name);
-                text.push('@');
-                text.push_str(version);
-                text
-              });
+            let mut optional_dependencies =
+              BTreeMap::<StackString, StackString>::new();
+
+            for dep in value.dependencies.into_iter() {
+              handle_dep(dep, &version_by_dep_name, &mut dependencies)?;
+            }
+            for dep in value.optional_dependencies.into_iter() {
+              handle_dep(
+                dep,
+                &version_by_dep_name,
+                &mut optional_dependencies,
+              )?;
             }
             npm.insert(
               key,
               NpmPackageInfo {
                 integrity: value.integrity,
                 dependencies,
+                cpu: value.cpu,
+                os: value.os,
+                tarball: value.tarball,
+                optional_dependencies,
               },
             );
           }
@@ -439,7 +482,90 @@ impl Lockfile {
     }
   }
 
-  pub fn new(opts: NewLockfileOptions) -> Result<Lockfile, Box<LockfileError>> {
+  pub async fn new(
+    opts: NewLockfileOptions<'_>,
+    provider: &dyn NpmPackageInfoProvider,
+  ) -> Result<Lockfile, Box<LockfileError>> {
+    async fn load_content(
+      content: &str,
+      provider: &dyn NpmPackageInfoProvider,
+    ) -> Result<LockfileContent, LockfileErrorReason> {
+      let value: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(content)
+          .map_err(LockfileErrorReason::ParseError)?;
+      let version = value.get("version").and_then(|v| v.as_str());
+      let value = match version {
+        Some("5") => value,
+        Some("4") => transforms::transform4_to_5(value, provider).await?,
+        Some("3") => {
+          transforms::transform4_to_5(
+            transforms::transform3_to_4(value)?,
+            provider,
+          )
+          .await?
+        }
+        Some("2") => {
+          transforms::transform4_to_5(
+            transforms::transform3_to_4(transforms::transform2_to_3(value))?,
+            provider,
+          )
+          .await?
+        }
+        None => {
+          transforms::transform4_to_5(
+            transforms::transform3_to_4(transforms::transform2_to_3(
+              transforms::transform1_to_2(value),
+            ))?,
+            provider,
+          )
+          .await?
+        }
+        Some(version) => {
+          return Err(LockfileErrorReason::UnsupportedVersion {
+            version: version.to_string(),
+          });
+        }
+      };
+      let content = LockfileContent::from_json(value.into())
+        .map_err(LockfileErrorReason::DeserializationError)?;
+
+      Ok(content)
+    }
+
+    // Writing a lock file always uses the new format.
+    if opts.overwrite {
+      return Ok(Lockfile {
+        overwrite: opts.overwrite,
+        filename: opts.file_path,
+        has_content_changed: false,
+        content: LockfileContent::default(),
+      });
+    }
+
+    if opts.content.trim().is_empty() {
+      return Err(Box::new(LockfileError {
+        file_path: opts.file_path.display().to_string(),
+        source: LockfileErrorReason::Empty,
+      }));
+    }
+    let content =
+      load_content(opts.content, provider)
+        .await
+        .map_err(|reason| LockfileError {
+          file_path: opts.file_path.display().to_string(),
+          source: reason,
+        })?;
+    Ok(Lockfile {
+      overwrite: opts.overwrite,
+      has_content_changed: false,
+      content,
+      filename: opts.file_path,
+    })
+  }
+
+  pub fn new_current_version(
+    opts: NewLockfileOptions,
+  ) -> Result<Lockfile, Box<LockfileError>> {
     fn load_content(
       content: &str,
     ) -> Result<LockfileContent, LockfileErrorReason> {
@@ -448,14 +574,10 @@ impl Lockfile {
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
       let value = match version {
-        Some("4") => value,
-        Some("3") => transforms::transform3_to_4(value)?,
-        Some("2") => {
-          transforms::transform3_to_4(transforms::transform2_to_3(value))?
+        Some("5") => value,
+        Some("4" | "3" | "2") | None => {
+          return Err(LockfileErrorReason::TransformNeeded)
         }
-        None => transforms::transform3_to_4(transforms::transform2_to_3(
-          transforms::transform1_to_2(value),
-        ))?,
         Some(version) => {
           return Err(LockfileErrorReason::UnsupportedVersion {
             version: version.to_string(),
@@ -499,7 +621,7 @@ impl Lockfile {
   }
 
   pub fn as_json_string(&self) -> String {
-    let mut text = printer::print_v4_content(&self.content);
+    let mut text = printer::print_v5_content(&self.content);
     text.reserve(1);
     text.push('\n');
     text
@@ -755,6 +877,11 @@ impl Lockfile {
   /// WARNING: It is up to the caller to ensure checksums of packages are
   /// valid before it is inserted here.
   pub fn insert_npm_package(&mut self, package_info: NpmPackageLockfileInfo) {
+    let optional_dependencies = package_info
+      .optional_dependencies
+      .into_iter()
+      .map(|dep| (dep.name, dep.id))
+      .collect::<BTreeMap<StackString, StackString>>();
     let dependencies = package_info
       .dependencies
       .into_iter()
@@ -765,6 +892,10 @@ impl Lockfile {
     let package_info = NpmPackageInfo {
       integrity: package_info.integrity,
       dependencies,
+      optional_dependencies,
+      os: package_info.os,
+      cpu: package_info.cpu,
+      tarball: package_info.tarball,
     };
     match entry {
       BTreeMapEntry::Vacant(entry) => {
@@ -873,15 +1004,49 @@ impl Lockfile {
 mod tests {
   use super::*;
   use deno_semver::package::PackageReq;
+  use futures::FutureExt;
   use pretty_assertions::assert_eq;
+  #[derive(Default)]
+  struct TestNpmPackageInfoProvider {
+    cache: HashMap<PackageNv, Lockfile5NpmInfo>,
+  }
+
+  #[derive(Debug)]
+  struct PackageNotFound(PackageNv);
+
+  impl std::fmt::Display for PackageNotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(f, "Package not found: {}", self.0)
+    }
+  }
+
+  impl std::error::Error for PackageNotFound {}
+
+  #[async_trait::async_trait(?Send)]
+  impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
+    async fn get_npm_package_info(
+      &self,
+      packages: &[PackageNv],
+    ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error + Send + Sync>>
+    {
+      let mut infos = Vec::with_capacity(packages.len());
+      for package in packages {
+        if let Some(info) = self.cache.get(package) {
+          infos.push(info.clone());
+        } else {
+          return Err(Box::new(PackageNotFound(package.clone())) as _);
+        }
+      }
+      Ok(infos)
+    }
+  }
 
   const LOCKFILE_JSON: &str = r#"
 {
   "version": "4",
   "npm": {
     "nanoid@3.3.4": {
-      "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==",
-      "dependencies": []
+      "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw=="
     },
     "picocolors@1.0.0": {
       "integrity": "sha512-foobar",
@@ -894,10 +1059,35 @@ mod tests {
   }
 }"#;
 
+  fn new_lockfile(
+    options: NewLockfileOptions,
+  ) -> Result<Lockfile, Box<LockfileError>> {
+    Lockfile::new(
+      options,
+      &TestNpmPackageInfoProvider {
+        cache: HashMap::from_iter([
+          (
+            PackageNv::from_str("nanoid@3.3.4").unwrap(),
+            Lockfile5NpmInfo {
+              ..Default::default()
+            },
+          ),
+          (
+            PackageNv::from_str("picocolors@1.0.0").unwrap(),
+            Lockfile5NpmInfo {
+              ..Default::default()
+            },
+          ),
+        ]),
+      },
+    )
+    .now_or_never()
+    .unwrap()
+  }
   fn setup(overwrite: bool) -> Result<Lockfile, Box<LockfileError>> {
     let file_path =
       std::env::current_dir().unwrap().join("valid_lockfile.json");
-    Lockfile::new(NewLockfileOptions {
+    new_lockfile(NewLockfileOptions {
       file_path,
       content: LOCKFILE_JSON,
       overwrite,
@@ -907,7 +1097,7 @@ mod tests {
   #[test]
   fn future_version_unsupported() {
     let file_path = PathBuf::from("lockfile.json");
-    let err = Lockfile::new(NewLockfileOptions {
+    let err = new_lockfile(NewLockfileOptions {
       file_path,
       content: "{ \"version\": \"2000\" }",
       overwrite: false,
@@ -939,7 +1129,7 @@ mod tests {
   #[test]
   fn with_lockfile_content_for_valid_lockfile() {
     let file_path = PathBuf::from("/foo");
-    let result = Lockfile::new(NewLockfileOptions {
+    let result = new_lockfile(NewLockfileOptions {
       file_path,
       content: LOCKFILE_JSON,
       overwrite: false,
@@ -1070,6 +1260,10 @@ mod tests {
       serialized_id: "nanoid@3.3.4".into(),
       integrity: Some("sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string()),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      tarball: None,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(!lockfile.has_content_changed);
@@ -1079,6 +1273,10 @@ mod tests {
       serialized_id: "picocolors@1.0.0".into(),
       integrity: Some("sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string()),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      tarball: None,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(lockfile.has_content_changed);
@@ -1088,6 +1286,10 @@ mod tests {
       serialized_id: "source-map-js@1.0.2".into(),
       integrity: Some("sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string()),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      tarball: None,
     };
     // Not present in lockfile yet, should be inserted
     lockfile.insert_npm_package(npm_package.clone());
@@ -1102,6 +1304,10 @@ mod tests {
       serialized_id: "source-map-js@1.0.2".into(),
       integrity: Some("sha512-foobar".to_string()),
       dependencies: vec![],
+      optional_dependencies: vec![],
+      os: vec![],
+      cpu: vec![],
+      tarball: None,
     };
     // Now present in lockfile, should be changed due to different integrity
     lockfile.insert_npm_package(npm_package);
@@ -1110,7 +1316,7 @@ mod tests {
 
   #[test]
   fn lockfile_with_redirects() {
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
   "version": "4",
@@ -1129,7 +1335,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "4",
+  "version": "5",
   "redirects": {
     "https://deno.land/x/other/mod.ts": "https://deno.land/x/other@0.1.0/mod.ts",
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
@@ -1141,7 +1347,7 @@ mod tests {
 
   #[test]
   fn test_insert_redirect() {
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
   "version": "4",
@@ -1169,7 +1375,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "4",
+  "version": "5",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.1/mod.ts",
     "https://deno.land/x/std/other.ts": "https://deno.land/std@0.190.1/other.ts"
@@ -1181,7 +1387,7 @@ mod tests {
 
   #[test]
   fn test_insert_jsr() {
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
   "version": "4",
@@ -1209,7 +1415,7 @@ mod tests {
     assert_eq!(
       lockfile.as_json_string(),
       r#"{
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@foo/bar@2": "jsr:@foo/bar@2.1.2",
     "jsr:path@*": "jsr:@std/path@0.75.1"
@@ -1226,7 +1432,7 @@ mod tests {
       "https://deno.land/std@0.71.0/async/delay.ts": "35957d585a6e3dd87706858fb1d6b551cb278271b03f52c5a2cb70e65e00c26a"
     }"#;
     let file_path = PathBuf::from("lockfile.json");
-    let lockfile = Lockfile::new(NewLockfileOptions {
+    let lockfile = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,
@@ -1260,7 +1466,7 @@ mod tests {
       }
     }"#;
     let file_path = PathBuf::from("lockfile.json");
-    let lockfile = Lockfile::new(NewLockfileOptions {
+    let lockfile = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,
@@ -1284,7 +1490,7 @@ mod tests {
       "remote": {}
     }"#;
     let file_path = PathBuf::from("lockfile.json");
-    let mut lockfile = Lockfile::new(NewLockfileOptions {
+    let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,
@@ -1333,7 +1539,7 @@ mod tests {
   fn empty_lockfile_nicer_error() {
     let content: &str = r#"  "#;
     let file_path = PathBuf::from("lockfile.json");
-    let err = Lockfile::new(NewLockfileOptions {
+    let err = new_lockfile(NewLockfileOptions {
       file_path,
       content,
       overwrite: false,

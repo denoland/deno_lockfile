@@ -165,7 +165,7 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@dsherret/dax@*": "0.0.1",
     "jsr:@dsherret/which@0.0.1": "0.0.1",
