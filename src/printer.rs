@@ -40,9 +40,14 @@ struct SerializedNpmPkg<'a> {
   os: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   cpu: Vec<SmallStackString>,
-
+  #[serde(skip_serializing_if = "is_false")]
+  deprecated: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   tarball: Option<&'a str>,
+}
+
+fn is_false(value: &bool) -> bool {
+  !value
 }
 
 // WARNING: It's important to implement Ord/PartialOrd on the final
@@ -267,6 +272,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
             os: value.os.clone(),
             cpu: value.cpu.clone(),
             tarball: value.tarball.as_deref(),
+            deprecated: value.deprecated,
           },
         )
       })

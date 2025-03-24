@@ -38,7 +38,9 @@
       "tarball": "https://fake-registry.com/a/pkg-2.1.5.tgz"
     },
     "@b/pkg@2.0.5": {
-      "integrity": "sha512-b1"
+      "integrity": "sha512-b1",
+      "deprecated": true,
+      "tarball": "https://fake-registry.com/b/pkg-2.0.5.tgz"
     }
   }
 }

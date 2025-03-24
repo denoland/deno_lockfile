@@ -80,6 +80,7 @@ struct LockfileNpmGraphPackage {
   os: Vec<SmallStackString>,
   cpu: Vec<SmallStackString>,
   tarball: Option<StackString>,
+  deprecated: bool,
 }
 
 #[derive(Debug)]
@@ -177,6 +178,7 @@ impl LockfilePackageGraph {
           cpu: package.cpu.clone(),
           os: package.os.clone(),
           tarball: package.tarball.clone(),
+          deprecated: package.deprecated,
         }),
       );
     }
@@ -380,6 +382,7 @@ impl LockfilePackageGraph {
                 .into_iter()
                 .map(|(name, id)| (name, id.0))
                 .collect(),
+              deprecated: package.deprecated,
             },
           );
         }

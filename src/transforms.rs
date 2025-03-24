@@ -317,6 +317,9 @@ pub async fn transform4_to_5(
       if let Some(tarball_url) = result.tarball_url {
         value.insert("tarball".into(), tarball_url.into());
       }
+      if result.deprecated {
+        value.insert("deprecated".into(), true.into());
+      }
     }
     json.insert("npm".into(), npm.into());
   }
@@ -331,6 +334,7 @@ pub struct Lockfile5NpmInfo {
   pub optional_dependencies: BTreeMap<String, String>,
   pub cpu: Vec<String>,
   pub os: Vec<String>,
+  pub deprecated: bool,
 }
 
 #[async_trait::async_trait(?Send)]
@@ -578,7 +582,13 @@ mod test {
         default_info("package-c@1.0.0"),
         default_info("package-d@1.0.0"),
         default_info("package-d@2.0.0"),
-        default_info("package-e@1.0.0"),
+        (
+          nv("package-e@1.0.0"),
+          Lockfile5NpmInfo {
+            deprecated: true,
+            ..Default::default()
+          },
+        ),
       ];
       let data = serde_json::from_value(json!({
         "version": "4",
@@ -651,6 +661,7 @@ mod test {
           },
           "package-e@1.0.0": {
             "integrity": "sha512-foobar",
+            "deprecated": true,
           },
         }
       }))

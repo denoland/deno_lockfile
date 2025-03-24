@@ -55,7 +55,9 @@
       "integrity": "sha512-b1",
       "dependencies": [
         "@c/pkg@2.0.0"
-      ]
+      ],
+      "deprecated": true,
+      "tarball": "https://fake-registry.com/b/pkg-2.0.5.tgz"
     },
     "@c/pkg@1.0.0": {
       "integrity": "sha512-c1"
