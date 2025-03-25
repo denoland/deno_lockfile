@@ -320,6 +320,12 @@ pub async fn transform4_to_5(
       if result.deprecated {
         value.insert("deprecated".into(), true.into());
       }
+      if result.scripts {
+        value.insert("scripts".into(), true.into());
+      }
+      if result.bin {
+        value.insert("bin".into(), true.into());
+      }
     }
     json.insert("npm".into(), npm.into());
   }
@@ -335,6 +341,8 @@ pub struct Lockfile5NpmInfo {
   pub cpu: Vec<String>,
   pub os: Vec<String>,
   pub deprecated: bool,
+  pub scripts: bool,
+  pub bin: bool,
 }
 
 #[async_trait::async_trait(?Send)]
@@ -579,8 +587,20 @@ mod test {
           },
         ),
         default_info("package-b@1.0.0"),
-        default_info("package-c@1.0.0"),
-        default_info("package-d@1.0.0"),
+        (
+          nv("package-c@1.0.0"),
+          Lockfile5NpmInfo {
+            bin: true,
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-d@1.0.0"),
+          Lockfile5NpmInfo {
+            scripts: true,
+            ..Default::default()
+          },
+        ),
         default_info("package-d@2.0.0"),
         (
           nv("package-e@1.0.0"),
@@ -651,10 +671,12 @@ mod test {
           },
           "package-c@1.0.0": {
             "integrity": "sha512-foobar",
-            "dependencies": ["package-d@2.0.0"]
+            "dependencies": ["package-d@2.0.0"],
+            "bin": true,
           },
           "package-d@1.0.0": {
             "integrity": "sha512-foobar",
+            "scripts": true,
           },
           "package-d@2.0.0": {
             "integrity": "sha512-foobar",

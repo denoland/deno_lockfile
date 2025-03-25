@@ -42,6 +42,10 @@ struct SerializedNpmPkg<'a> {
   cpu: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "is_false")]
   deprecated: bool,
+  #[serde(skip_serializing_if = "is_false")]
+  scripts: bool,
+  #[serde(skip_serializing_if = "is_false")]
+  bin: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   tarball: Option<&'a str>,
 }
@@ -273,6 +277,8 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
             cpu: value.cpu.clone(),
             tarball: value.tarball.as_deref(),
             deprecated: value.deprecated,
+            scripts: value.scripts,
+            bin: value.bin,
           },
         )
       })

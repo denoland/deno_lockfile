@@ -73,6 +73,8 @@ pub struct NpmPackageLockfileInfo {
   pub cpu: Vec<SmallStackString>,
   pub tarball: Option<StackString>,
   pub deprecated: bool,
+  pub scripts: bool,
+  pub bin: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +97,10 @@ pub struct NpmPackageInfo {
   pub tarball: Option<StackString>,
   #[serde(default, skip_serializing_if = "is_false")]
   pub deprecated: bool,
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub scripts: bool,
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub bin: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -304,6 +310,10 @@ impl LockfileContent {
       pub tarball: Option<StackString>,
       #[serde(default, skip_serializing_if = "is_false")]
       pub deprecated: bool,
+      #[serde(default, skip_serializing_if = "is_false")]
+      pub scripts: bool,
+      #[serde(default, skip_serializing_if = "is_false")]
+      pub bin: bool,
     }
 
     #[derive(Debug, Deserialize)]
@@ -384,6 +394,8 @@ impl LockfileContent {
                 tarball: value.tarball,
                 optional_dependencies,
                 deprecated: value.deprecated,
+                scripts: value.scripts,
+                bin: value.bin,
               },
             );
           }
@@ -907,6 +919,8 @@ impl Lockfile {
       cpu: package_info.cpu,
       tarball: package_info.tarball,
       deprecated: package_info.deprecated,
+      scripts: package_info.scripts,
+      bin: package_info.bin,
     };
     match entry {
       BTreeMapEntry::Vacant(entry) => {
@@ -1276,6 +1290,8 @@ mod tests {
       cpu: vec![],
       tarball: None,
       deprecated: false,
+      scripts: false,
+      bin: false,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(!lockfile.has_content_changed);
@@ -1290,6 +1306,8 @@ mod tests {
       cpu: vec![],
       tarball: None,
       deprecated: false,
+      scripts: false,
+      bin: false,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(lockfile.has_content_changed);
@@ -1304,6 +1322,8 @@ mod tests {
       cpu: vec![],
       tarball: None,
       deprecated: false,
+      scripts: false,
+      bin: false,
     };
     // Not present in lockfile yet, should be inserted
     lockfile.insert_npm_package(npm_package.clone());
@@ -1323,6 +1343,8 @@ mod tests {
       cpu: vec![],
       tarball: None,
       deprecated: false,
+      scripts: false,
+      bin: false,
     };
     // Now present in lockfile, should be changed due to different integrity
     lockfile.insert_npm_package(npm_package);
