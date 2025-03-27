@@ -2,7 +2,8 @@
   "cpu": ["x86_64"],
   "os": ["darwin", "linux", "win32"],
   "tarballUrl": "https://fake-registry.com/a/pkg-2.1.5.tgz",
-  "optionalDependencies": { "other_name": "npm:@b/pkg@2.0.5" },
-  "bin": true,
-  "scripts": true
+  "optionalDependencies": { "othername": "npm:@b/pkg@2.0.5" },
+  "hasBin": true,
+  "hasScripts": true,
+  "optionalPeerDependencies": { "optionalpeerdep": "npm:@z/pkg@1.0.0" }
 }

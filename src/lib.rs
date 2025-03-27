@@ -69,12 +69,13 @@ pub struct NpmPackageLockfileInfo {
   pub integrity: Option<String>,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
   pub optional_dependencies: Vec<NpmPackageDependencyLockfileInfo>,
+  pub optional_peer_dependencies: Vec<NpmPackageDependencyLockfileInfo>,
   pub os: Vec<SmallStackString>,
   pub cpu: Vec<SmallStackString>,
   pub tarball: Option<StackString>,
   pub deprecated: bool,
-  pub scripts: bool,
-  pub bin: bool,
+  pub has_scripts: bool,
+  pub has_bin: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +92,8 @@ pub struct NpmPackageInfo {
   pub dependencies: BTreeMap<StackString, StackString>,
   #[serde(default)]
   pub optional_dependencies: BTreeMap<StackString, StackString>,
+  #[serde(default)]
+  pub optional_peer_dependencies: BTreeMap<StackString, StackString>,
   pub os: Vec<SmallStackString>,
   pub cpu: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -98,9 +101,9 @@ pub struct NpmPackageInfo {
   #[serde(default, skip_serializing_if = "is_false")]
   pub deprecated: bool,
   #[serde(default, skip_serializing_if = "is_false")]
-  pub scripts: bool,
+  pub has_scripts: bool,
   #[serde(default, skip_serializing_if = "is_false")]
-  pub bin: bool,
+  pub has_bin: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -302,6 +305,8 @@ impl LockfileContent {
       pub dependencies: Vec<StackString>,
       #[serde(default)]
       pub optional_dependencies: Vec<StackString>,
+      #[serde(default, skip_serializing_if = "Vec::is_empty")]
+      pub optional_peer_dependencies: Vec<StackString>,
       #[serde(default)]
       pub os: Vec<SmallStackString>,
       #[serde(default)]
@@ -311,9 +316,9 @@ impl LockfileContent {
       #[serde(default, skip_serializing_if = "is_false")]
       pub deprecated: bool,
       #[serde(default, skip_serializing_if = "is_false")]
-      pub scripts: bool,
+      pub has_scripts: bool,
       #[serde(default, skip_serializing_if = "is_false")]
-      pub bin: bool,
+      pub has_bin: bool,
     }
 
     #[derive(Debug, Deserialize)]
@@ -373,6 +378,8 @@ impl LockfileContent {
               BTreeMap::new();
             let mut optional_dependencies =
               BTreeMap::<StackString, StackString>::new();
+            let mut optional_peer_dependencies =
+              BTreeMap::<StackString, StackString>::new();
 
             for dep in value.dependencies.into_iter() {
               handle_dep(dep, &version_by_dep_name, &mut dependencies)?;
@@ -384,6 +391,14 @@ impl LockfileContent {
                 &mut optional_dependencies,
               )?;
             }
+            for dep in value.optional_peer_dependencies.into_iter() {
+              handle_dep(
+                dep,
+                &version_by_dep_name,
+                &mut optional_peer_dependencies,
+              )?;
+            }
+
             npm.insert(
               key,
               NpmPackageInfo {
@@ -393,9 +408,10 @@ impl LockfileContent {
                 os: value.os,
                 tarball: value.tarball,
                 optional_dependencies,
+                optional_peer_dependencies,
                 deprecated: value.deprecated,
-                scripts: value.scripts,
-                bin: value.bin,
+                has_scripts: value.has_scripts,
+                has_bin: value.has_bin,
               },
             );
           }
@@ -909,18 +925,24 @@ impl Lockfile {
       .into_iter()
       .map(|dep| (dep.name, dep.id))
       .collect::<BTreeMap<StackString, StackString>>();
+    let optional_peer_dependencies = package_info
+      .optional_peer_dependencies
+      .into_iter()
+      .map(|dep| (dep.name, dep.id))
+      .collect::<BTreeMap<StackString, StackString>>();
 
     let entry = self.content.packages.npm.entry(package_info.serialized_id);
     let package_info = NpmPackageInfo {
       integrity: package_info.integrity,
       dependencies,
       optional_dependencies,
+      optional_peer_dependencies,
       os: package_info.os,
       cpu: package_info.cpu,
       tarball: package_info.tarball,
       deprecated: package_info.deprecated,
-      scripts: package_info.scripts,
-      bin: package_info.bin,
+      has_scripts: package_info.has_scripts,
+      has_bin: package_info.has_bin,
     };
     match entry {
       BTreeMapEntry::Vacant(entry) => {
@@ -1286,12 +1308,13 @@ mod tests {
       integrity: Some("sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
+      optional_peer_dependencies: vec![],
       os: vec![],
       cpu: vec![],
       tarball: None,
       deprecated: false,
-      scripts: false,
-      bin: false,
+      has_scripts: false,
+      has_bin: false,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(!lockfile.has_content_changed);
@@ -1302,12 +1325,13 @@ mod tests {
       integrity: Some("sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
+      optional_peer_dependencies: vec![],
       os: vec![],
       cpu: vec![],
       tarball: None,
       deprecated: false,
-      scripts: false,
-      bin: false,
+      has_scripts: false,
+      has_bin: false,
     };
     lockfile.insert_npm_package(npm_package);
     assert!(lockfile.has_content_changed);
@@ -1318,12 +1342,13 @@ mod tests {
       integrity: Some("sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
+      optional_peer_dependencies: vec![],
       os: vec![],
       cpu: vec![],
       tarball: None,
       deprecated: false,
-      scripts: false,
-      bin: false,
+      has_scripts: false,
+      has_bin: false,
     };
     // Not present in lockfile yet, should be inserted
     lockfile.insert_npm_package(npm_package.clone());
@@ -1339,12 +1364,13 @@ mod tests {
       integrity: Some("sha512-foobar".to_string()),
       dependencies: vec![],
       optional_dependencies: vec![],
+      optional_peer_dependencies: vec![],
       os: vec![],
       cpu: vec![],
       tarball: None,
       deprecated: false,
-      scripts: false,
-      bin: false,
+      has_scripts: false,
+      has_bin: false,
     };
     // Now present in lockfile, should be changed due to different integrity
     lockfile.insert_npm_package(npm_package);

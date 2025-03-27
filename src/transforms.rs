@@ -295,6 +295,16 @@ pub async fn transform4_to_5(
         }
         value.insert("optionalDependencies".into(), new_optional_deps.into());
       }
+      let mut new_optional_peer_deps = Vec::new();
+      if !result.optional_peer_dependencies.is_empty() {
+        for (key, value) in result.optional_peer_dependencies {
+          new_optional_peer_deps.push(format!("{}@{}", key, value));
+        }
+        value.insert(
+          "optionalPeerDependencies".into(),
+          new_optional_peer_deps.into(),
+        );
+      }
 
       if existing_deps.is_empty() {
         value.remove("dependencies");
@@ -320,11 +330,11 @@ pub async fn transform4_to_5(
       if result.deprecated {
         value.insert("deprecated".into(), true.into());
       }
-      if result.scripts {
-        value.insert("scripts".into(), true.into());
+      if result.has_scripts {
+        value.insert("hasScripts".into(), true.into());
       }
-      if result.bin {
-        value.insert("bin".into(), true.into());
+      if result.has_bin {
+        value.insert("hasBin".into(), true.into());
       }
     }
     json.insert("npm".into(), npm.into());
@@ -338,11 +348,12 @@ pub async fn transform4_to_5(
 pub struct Lockfile5NpmInfo {
   pub tarball_url: Option<String>,
   pub optional_dependencies: BTreeMap<String, String>,
+  pub optional_peer_dependencies: BTreeMap<String, String>,
   pub cpu: Vec<String>,
   pub os: Vec<String>,
   pub deprecated: bool,
-  pub scripts: bool,
-  pub bin: bool,
+  pub has_scripts: bool,
+  pub has_bin: bool,
 }
 
 #[async_trait::async_trait(?Send)]
@@ -590,18 +601,27 @@ mod test {
         (
           nv("package-c@1.0.0"),
           Lockfile5NpmInfo {
-            bin: true,
+            has_bin: true,
             ..Default::default()
           },
         ),
         (
           nv("package-d@1.0.0"),
           Lockfile5NpmInfo {
-            scripts: true,
+            has_scripts: true,
             ..Default::default()
           },
         ),
-        default_info("package-d@2.0.0"),
+        (
+          nv("package-d@2.0.0"),
+          Lockfile5NpmInfo {
+            optional_peer_dependencies: [("package-z", "1.0.0")]
+              .into_iter()
+              .map(|(k, v)| (k.to_string(), v.to_string()))
+              .collect(),
+            ..Default::default()
+          },
+        ),
         (
           nv("package-e@1.0.0"),
           Lockfile5NpmInfo {
@@ -672,14 +692,15 @@ mod test {
           "package-c@1.0.0": {
             "integrity": "sha512-foobar",
             "dependencies": ["package-d@2.0.0"],
-            "bin": true,
+            "hasBin": true,
           },
           "package-d@1.0.0": {
             "integrity": "sha512-foobar",
-            "scripts": true,
+            "hasScripts": true,
           },
           "package-d@2.0.0": {
             "integrity": "sha512-foobar",
+            "optionalPeerDependencies": ["package-z@1.0.0"],
           },
           "package-e@1.0.0": {
             "integrity": "sha512-foobar",

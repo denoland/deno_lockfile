@@ -6,7 +6,7 @@
       "@aa/pkg@2.1.5": {
         "integrity": "sha512-a1",
         "dependencies": {
-          "other_name": "@b/pkg@2.0.5"
+          "othername": "@b/pkg@2.0.5"
         }
       },
       "@b/pkg@2.0.5": {
@@ -25,7 +25,10 @@
     "@aa/pkg@2.1.5": {
       "integrity": "sha512-a1",
       "optionalDependencies": [
-        "other_name@npm:@b/pkg@2.0.5"
+        "othername@npm:@b/pkg@2.0.5"
+      ],
+      "optionalPeerDependencies": [
+        "optionalpeerdep@npm:@z/pkg@1.0.0"
       ],
       "os": [
         "darwin",
@@ -35,8 +38,8 @@
       "cpu": [
         "x86_64"
       ],
-      "scripts": true,
-      "bin": true,
+      "hasScripts": true,
+      "hasBin": true,
       "tarball": "https://fake-registry.com/a/pkg-2.1.5.tgz"
     },
     "@b/pkg@2.0.5": {

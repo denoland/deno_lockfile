@@ -37,15 +37,17 @@ struct SerializedNpmPkg<'a> {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   optional_dependencies: Vec<Cow<'a, str>>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
+  optional_peer_dependencies: Vec<Cow<'a, str>>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
   os: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   cpu: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "is_false")]
   deprecated: bool,
   #[serde(skip_serializing_if = "is_false")]
-  scripts: bool,
+  has_scripts: bool,
   #[serde(skip_serializing_if = "is_false")]
-  bin: bool,
+  has_bin: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   tarball: Option<&'a str>,
 }
@@ -267,18 +269,23 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
           handle_deps(&value.dependencies, &pkg_had_multiple_versions);
         let optional_dependencies =
           handle_deps(&value.optional_dependencies, &pkg_had_multiple_versions);
+        let optional_peer_dependencies = handle_deps(
+          &value.optional_peer_dependencies,
+          &pkg_had_multiple_versions,
+        );
         (
           key.as_str(),
           SerializedNpmPkg {
             integrity: value.integrity.as_deref(),
             dependencies,
             optional_dependencies,
+            optional_peer_dependencies,
             os: value.os.clone(),
             cpu: value.cpu.clone(),
             tarball: value.tarball.as_deref(),
             deprecated: value.deprecated,
-            scripts: value.scripts,
-            bin: value.bin,
+            has_scripts: value.has_scripts,
+            has_bin: value.has_bin,
           },
         )
       })

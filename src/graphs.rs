@@ -77,12 +77,13 @@ struct LockfileNpmGraphPackage {
   integrity: Option<String>,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
+  optional_peer_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   os: Vec<SmallStackString>,
   cpu: Vec<SmallStackString>,
   tarball: Option<StackString>,
   deprecated: bool,
-  scripts: bool,
-  bin: bool,
+  has_scripts: bool,
+  has_bin: bool,
 }
 
 #[derive(Debug)]
@@ -181,8 +182,15 @@ impl LockfilePackageGraph {
           os: package.os.clone(),
           tarball: package.tarball.clone(),
           deprecated: package.deprecated,
-          scripts: package.scripts,
-          bin: package.bin,
+          has_scripts: package.has_scripts,
+          has_bin: package.has_bin,
+          optional_peer_dependencies: package
+            .optional_peer_dependencies
+            .iter()
+            .map(|(name, dep_id)| {
+              (name.clone(), LockfileNpmPackageId(dep_id.clone()))
+            })
+            .collect(),
         }),
       );
     }
@@ -387,8 +395,13 @@ impl LockfilePackageGraph {
                 .map(|(name, id)| (name, id.0))
                 .collect(),
               deprecated: package.deprecated,
-              scripts: package.scripts,
-              bin: package.bin,
+              has_scripts: package.has_scripts,
+              has_bin: package.has_bin,
+              optional_peer_dependencies: package
+                .optional_peer_dependencies
+                .into_iter()
+                .map(|(name, id)| (name, id.0))
+                .collect(),
             },
           );
         }
