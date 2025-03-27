@@ -269,10 +269,8 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
           handle_deps(&value.dependencies, &pkg_had_multiple_versions);
         let optional_dependencies =
           handle_deps(&value.optional_dependencies, &pkg_had_multiple_versions);
-        let optional_peers = handle_deps(
-          &value.optional_peers,
-          &pkg_had_multiple_versions,
-        );
+        let optional_peers =
+          handle_deps(&value.optional_peers, &pkg_had_multiple_versions);
         (
           key.as_str(),
           SerializedNpmPkg {
