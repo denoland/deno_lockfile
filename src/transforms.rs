@@ -296,14 +296,11 @@ pub async fn transform4_to_5(
         value.insert("optionalDependencies".into(), new_optional_deps.into());
       }
       let mut new_optional_peer_deps = Vec::new();
-      if !result.optional_peer_dependencies.is_empty() {
-        for (key, value) in result.optional_peer_dependencies {
+      if !result.optional_peers.is_empty() {
+        for (key, value) in result.optional_peers {
           new_optional_peer_deps.push(format!("{}@{}", key, value));
         }
-        value.insert(
-          "optionalPeerDependencies".into(),
-          new_optional_peer_deps.into(),
-        );
+        value.insert("optionalPeers".into(), new_optional_peer_deps.into());
       }
 
       if existing_deps.is_empty() {
@@ -348,7 +345,7 @@ pub async fn transform4_to_5(
 pub struct Lockfile5NpmInfo {
   pub tarball_url: Option<String>,
   pub optional_dependencies: BTreeMap<String, String>,
-  pub optional_peer_dependencies: BTreeMap<String, String>,
+  pub optional_peers: BTreeMap<String, String>,
   pub cpu: Vec<String>,
   pub os: Vec<String>,
   pub deprecated: bool,
@@ -615,7 +612,7 @@ mod test {
         (
           nv("package-d@2.0.0"),
           Lockfile5NpmInfo {
-            optional_peer_dependencies: [("package-z", "1.0.0")]
+            optional_peers: [("package-z", "1.0.0")]
               .into_iter()
               .map(|(k, v)| (k.to_string(), v.to_string()))
               .collect(),
@@ -700,7 +697,7 @@ mod test {
           },
           "package-d@2.0.0": {
             "integrity": "sha512-foobar",
-            "optionalPeerDependencies": ["package-z@1.0.0"],
+            "optionalPeers": ["package-z@1.0.0"],
           },
           "package-e@1.0.0": {
             "integrity": "sha512-foobar",

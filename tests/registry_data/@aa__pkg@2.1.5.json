@@ -5,5 +5,5 @@
   "optionalDependencies": { "othername": "npm:@b/pkg@2.0.5" },
   "hasBin": true,
   "hasScripts": true,
-  "optionalPeerDependencies": { "optionalpeerdep": "npm:@z/pkg@1.0.0" }
+  "optionalPeers": { "optionalpeerdep": "npm:@z/pkg@1.0.0" }
 }

@@ -37,7 +37,7 @@ struct SerializedNpmPkg<'a> {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   optional_dependencies: Vec<Cow<'a, str>>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
-  optional_peer_dependencies: Vec<Cow<'a, str>>,
+  optional_peers: Vec<Cow<'a, str>>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   os: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -269,8 +269,8 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
           handle_deps(&value.dependencies, &pkg_had_multiple_versions);
         let optional_dependencies =
           handle_deps(&value.optional_dependencies, &pkg_had_multiple_versions);
-        let optional_peer_dependencies = handle_deps(
-          &value.optional_peer_dependencies,
+        let optional_peers = handle_deps(
+          &value.optional_peers,
           &pkg_had_multiple_versions,
         );
         (
@@ -279,7 +279,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
             integrity: value.integrity.as_deref(),
             dependencies,
             optional_dependencies,
-            optional_peer_dependencies,
+            optional_peers,
             os: value.os.clone(),
             cpu: value.cpu.clone(),
             tarball: value.tarball.as_deref(),
