@@ -207,7 +207,7 @@
 
 # will remove the package.json deps
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@scope/package_a@*": "0.0.1",
     "jsr:@scope/package_b@*": "0.0.1",

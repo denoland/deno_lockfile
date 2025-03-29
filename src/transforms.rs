@@ -1,7 +1,6 @@
-// Copyright 2018-2024 the Deno authors. MIT license.
+use std::collections::{BTreeMap, HashMap};
 
-use std::collections::HashMap;
-
+use deno_semver::{package::PackageNv, Version};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -43,37 +42,41 @@ pub fn transform2_to_3(mut json: JsonMap) -> JsonMap {
 pub enum TransformError {
   #[error("Failed extracting npm name and version from dep '{id}'.")]
   FailedExtractingV3NpmDepNv { id: String },
+  #[error("Failed getting npm package info: {source}")]
+  FailedGettingNpmPackageInfo {
+    #[source]
+    source: Box<dyn std::error::Error + Send + Sync>,
+  },
 }
 
+// note: although these functions are found elsewhere in this repo,
+// it is purposefully duplicated here to ensure it never changes
+// for these transforms
+fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
+  if value.is_empty() {
+    return None;
+  }
+  let at_index = value[1..].find('@')? + 1;
+  let name = &value[..at_index];
+  let version = &value[at_index + 1..];
+  Some((name, version))
+}
+
+fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
+  if value.len() < 5 {
+    return None;
+  }
+  // 5 is length of `jsr:@`/`npm:@`
+  let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
+    // no version requirement
+    // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
+    return Some((value, None));
+  };
+  let name = &value[..at_index];
+  let version = &value[at_index + 1..];
+  Some((name, Some(version)))
+}
 pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
-  // note: although these functions are found elsewhere in this repo,
-  // it is purposefully duplicated here to ensure it never changes
-  // for this transform
-  fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
-    if value.is_empty() {
-      return None;
-    }
-    let at_index = value[1..].find('@')? + 1;
-    let name = &value[..at_index];
-    let version = &value[at_index + 1..];
-    Some((name, version))
-  }
-
-  fn split_pkg_req(value: &str) -> Option<(&str, Option<&str>)> {
-    if value.len() < 5 {
-      return None;
-    }
-    // 5 is length of `jsr:@`/`npm:@`
-    let Some(at_index) = value[5..].find('@').map(|i| i + 5) else {
-      // no version requirement
-      // ex. `npm:jsonc-parser` or `jsr:@pkg/scope`
-      return Some((value, None));
-    };
-    let name = &value[..at_index];
-    let version = &value[at_index + 1..];
-    Some((name, Some(version)))
-  }
-
   json.insert("version".into(), "4".into());
   if let Some(Value::Object(mut packages)) = json.remove("packages") {
     if let Some((npm_key, Value::Object(mut npm))) =
@@ -184,8 +187,185 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
   Ok(json)
 }
 
+#[derive(Debug, Error)]
+#[error(
+  "Expected a different number of results from npm package info provider."
+)]
+pub struct MissingNpmPackageInfo;
+
+pub async fn transform4_to_5(
+  mut json: JsonMap,
+  info_provider: &dyn NpmPackageInfoProvider,
+) -> Result<JsonMap, TransformError> {
+  struct IdParts {
+    key: String,
+    package_name: String,
+    version: String,
+  }
+  fn split_id(
+    id: &str,
+    version_by_dep_name: &HashMap<String, String>,
+  ) -> Option<IdParts> {
+    let (left, right) = match extract_nv_from_id(id) {
+      Some((name, version)) => (name, version),
+      None => match version_by_dep_name.get(id) {
+        Some(version) => (id, &**version),
+        None => {
+          return None;
+        }
+      },
+    };
+    let (key, package_name, version) = match right.strip_prefix("npm:") {
+      Some(right) => {
+        // ex. key@npm:package-a@version
+        match extract_nv_from_id(right) {
+          Some((package_name, version)) => (left, package_name, version),
+          None => {
+            return None;
+          }
+        }
+      }
+      None => (left, left, right),
+    };
+    Some(IdParts {
+      key: key.to_string(),
+      package_name: package_name.to_string(),
+      version: version.to_string(),
+    })
+  }
+  json.insert("version".into(), "5".into());
+
+  if let Some(Value::Object(mut npm)) = json.remove("npm") {
+    let mut npm_packages = Vec::new();
+    let mut keys = Vec::new();
+    let mut has_multiple_versions = HashMap::new();
+    let mut version_by_dep_name = HashMap::new();
+    for (key, _) in &npm {
+      let Some(id_parts) = split_id(key, &version_by_dep_name) else {
+        continue;
+      };
+      let Ok(version) = Version::parse_standard(&id_parts.version) else {
+        continue;
+      };
+      has_multiple_versions
+        .entry(id_parts.package_name.to_string())
+        .and_modify(|v| *v = true)
+        .or_default();
+      version_by_dep_name.insert(
+        id_parts.package_name.to_string(),
+        id_parts.version.to_string(),
+      );
+      npm_packages.push(PackageNv {
+        name: id_parts.package_name.as_str().into(),
+        version,
+      });
+      keys.push(key.clone());
+    }
+    let results = info_provider
+      .get_npm_package_info(&npm_packages)
+      .await
+      .map_err(|source| TransformError::FailedGettingNpmPackageInfo {
+        source,
+      })?;
+    if results.len() != keys.len() {
+      return Err(TransformError::FailedGettingNpmPackageInfo {
+        source: Box::new(MissingNpmPackageInfo),
+      });
+    }
+    for (key, result) in keys.iter().zip(results) {
+      let Some(Value::Object(value)) = npm.get_mut(key) else {
+        continue;
+      };
+
+      let mut existing_deps = BTreeMap::new();
+      if let Some(Value::Array(deps)) = value.remove("dependencies") {
+        existing_deps.extend(deps.iter().filter_map(|v| {
+          let id = v.as_str().map(|s| s.to_string())?;
+          let id_parts = split_id(&id, &version_by_dep_name)?;
+          Some((id_parts.key, id))
+        }));
+      }
+
+      let mut new_optional_deps = Vec::new();
+      if !result.optional_dependencies.is_empty() {
+        for (key, _) in result.optional_dependencies {
+          if let Some(id) = existing_deps.remove(&*key) {
+            new_optional_deps.push(id);
+          }
+        }
+        value.insert("optionalDependencies".into(), new_optional_deps.into());
+      }
+      let mut new_optional_peer_deps = Vec::new();
+      if !result.optional_peers.is_empty() {
+        for (key, value) in result.optional_peers {
+          new_optional_peer_deps.push(format!("{}@{}", key, value));
+        }
+        value.insert("optionalPeers".into(), new_optional_peer_deps.into());
+      }
+
+      if existing_deps.is_empty() {
+        value.remove("dependencies");
+      } else {
+        value.insert(
+          "dependencies".into(),
+          existing_deps
+            .into_values()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .into(),
+        );
+      }
+      if !result.cpu.is_empty() {
+        value.insert("cpu".into(), result.cpu.into());
+      }
+      if !result.os.is_empty() {
+        value.insert("os".into(), result.os.into());
+      }
+      if let Some(tarball_url) = result.tarball_url {
+        value.insert("tarball".into(), tarball_url.into());
+      }
+      if result.deprecated {
+        value.insert("deprecated".into(), true.into());
+      }
+      if result.has_scripts {
+        value.insert("hasScripts".into(), true.into());
+      }
+      if result.has_bin {
+        value.insert("hasBin".into(), true.into());
+      }
+    }
+    json.insert("npm".into(), npm.into());
+  }
+
+  Ok(json)
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Lockfile5NpmInfo {
+  pub tarball_url: Option<String>,
+  pub optional_dependencies: BTreeMap<String, String>,
+  pub optional_peers: BTreeMap<String, String>,
+  pub cpu: Vec<String>,
+  pub os: Vec<String>,
+  pub deprecated: bool,
+  pub has_scripts: bool,
+  pub has_bin: bool,
+}
+
+#[async_trait::async_trait(?Send)]
+pub trait NpmPackageInfoProvider {
+  async fn get_npm_package_info(
+    &self,
+    values: &[PackageNv],
+  ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error + Send + Sync>>;
+}
+
 #[cfg(test)]
 mod test {
+  use std::future::Future;
+
+  use async_executor::LocalExecutor;
   use pretty_assertions::assert_eq;
   use serde_json::json;
 
@@ -354,5 +534,178 @@ mod test {
         "https://github.com/mod.ts": "asdf2",
       },
     })).unwrap());
+  }
+
+  fn run_async<T: Send + Sync>(f: impl Future<Output = T>) -> T {
+    let executor = LocalExecutor::new();
+    let handle = executor.run(f);
+    futures_lite::future::block_on(handle)
+  }
+
+  struct TestNpmPackageInfoProvider {
+    packages: HashMap<PackageNv, Lockfile5NpmInfo>,
+  }
+
+  #[async_trait::async_trait(?Send)]
+  impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
+    async fn get_npm_package_info(
+      &self,
+      values: &[PackageNv],
+    ) -> Result<Vec<Lockfile5NpmInfo>, Box<dyn std::error::Error + Send + Sync>>
+    {
+      Ok(
+        values
+          .iter()
+          .map(|v| {
+            self
+              .packages
+              .get(v)
+              .unwrap_or_else(|| panic!("no info for {v}"))
+              .clone()
+          })
+          .collect(),
+      )
+    }
+  }
+
+  fn nv(name_and_version: &str) -> PackageNv {
+    PackageNv::from_str(name_and_version).unwrap()
+  }
+
+  fn default_info(name_and_version: &str) -> (PackageNv, Lockfile5NpmInfo) {
+    (nv(name_and_version), Lockfile5NpmInfo::default())
+  }
+
+  #[test]
+  fn test_transforms_4_to_5() {
+    let result = run_async(async move {
+      let packages = [
+        (
+          nv("package-a@3.3.4"),
+          Lockfile5NpmInfo {
+            optional_dependencies: [
+              ("package-b", "1.0.0"),
+              ("othername", "package-c@1.0.0"),
+              ("package-d", "1.0.0"),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            ..Default::default()
+          },
+        ),
+        default_info("package-b@1.0.0"),
+        (
+          nv("package-c@1.0.0"),
+          Lockfile5NpmInfo {
+            has_bin: true,
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-d@1.0.0"),
+          Lockfile5NpmInfo {
+            has_scripts: true,
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-d@2.0.0"),
+          Lockfile5NpmInfo {
+            optional_peers: [("package-z", "1.0.0")]
+              .into_iter()
+              .map(|(k, v)| (k.to_string(), v.to_string()))
+              .collect(),
+            ..Default::default()
+          },
+        ),
+        (
+          nv("package-e@1.0.0"),
+          Lockfile5NpmInfo {
+            deprecated: true,
+            ..Default::default()
+          },
+        ),
+      ];
+      let data = serde_json::from_value(json!({
+        "version": "4",
+        "npm": {
+          "package-a@3.3.4": {
+            "integrity": "sha512-foobar",
+            "dependencies": [
+              "package-b",
+              "othername@npm:package-c@1.0.0",
+              "package-d@1.0.0",
+              "package-e",
+            ]
+          },
+          "package-b@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": []
+          },
+          "package-c@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": ["package-d@2.0.0"]
+          },
+          "package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": []
+          },
+          "package-d@2.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": []
+          },
+          "package-e@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": []
+          },
+        }
+      }))
+      .unwrap();
+      transform4_to_5(
+        data,
+        &TestNpmPackageInfoProvider {
+          packages: HashMap::from_iter(packages),
+        },
+      )
+      .await
+      .unwrap()
+    });
+    assert_eq!(
+      result,
+      serde_json::from_value(json!({
+        "version": "5",
+        "npm": {
+          "package-a@3.3.4": {
+            "integrity": "sha512-foobar",
+            "dependencies": [
+              "package-e",
+            ],
+            "optionalDependencies": ["othername@npm:package-c@1.0.0", "package-b", "package-d@1.0.0"]
+          },
+          "package-b@1.0.0": {
+            "integrity": "sha512-foobar",
+          },
+          "package-c@1.0.0": {
+            "integrity": "sha512-foobar",
+            "dependencies": ["package-d@2.0.0"],
+            "hasBin": true,
+          },
+          "package-d@1.0.0": {
+            "integrity": "sha512-foobar",
+            "hasScripts": true,
+          },
+          "package-d@2.0.0": {
+            "integrity": "sha512-foobar",
+            "optionalPeers": ["package-z@1.0.0"],
+          },
+          "package-e@1.0.0": {
+            "integrity": "sha512-foobar",
+            "deprecated": true,
+          },
+        }
+      }))
+      .unwrap()
+    );
   }
 }

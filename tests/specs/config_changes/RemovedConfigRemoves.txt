@@ -204,7 +204,7 @@
 
 # will remove the contents
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@scope/package_orphan@*": "0.0.1"
   },

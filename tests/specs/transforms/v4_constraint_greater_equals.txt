@@ -282,7 +282,7 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "npm:@tauri-apps/api@>=2.0.0-rc.0": "2.0.0-rc.4",
     "npm:@tauri-apps/cli@>=2.0.0-rc.0": "2.0.0-rc.15",

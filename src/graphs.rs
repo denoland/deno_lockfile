@@ -76,6 +76,14 @@ struct LockfileNpmGraphPackage {
   root_ids: HashSet<LockfilePkgId>,
   integrity: Option<String>,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
+  optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
+  optional_peers: BTreeMap<StackString, LockfileNpmPackageId>,
+  os: Vec<SmallStackString>,
+  cpu: Vec<SmallStackString>,
+  tarball: Option<StackString>,
+  deprecated: bool,
+  has_scripts: bool,
+  has_bin: bool,
 }
 
 #[derive(Debug)]
@@ -161,6 +169,26 @@ impl LockfilePackageGraph {
             .iter()
             .map(|(key, dep_id)| {
               (key.clone(), LockfileNpmPackageId(dep_id.clone()))
+            })
+            .collect(),
+          optional_dependencies: package
+            .optional_dependencies
+            .iter()
+            .map(|(name, dep_id)| {
+              (name.clone(), LockfileNpmPackageId(dep_id.clone()))
+            })
+            .collect(),
+          cpu: package.cpu.clone(),
+          os: package.os.clone(),
+          tarball: package.tarball.clone(),
+          deprecated: package.deprecated,
+          has_scripts: package.has_scripts,
+          has_bin: package.has_bin,
+          optional_peers: package
+            .optional_peers
+            .iter()
+            .map(|(name, dep_id)| {
+              (name.clone(), LockfileNpmPackageId(dep_id.clone()))
             })
             .collect(),
         }),
@@ -336,7 +364,7 @@ impl LockfilePackageGraph {
               LockfilePkgId::Npm(_) => unreachable!(),
             },
             crate::JsrPackageInfo {
-              integrity: package.integrity.clone(),
+              integrity: package.integrity,
               dependencies: package
                 .dependencies
                 .into_iter()
@@ -352,9 +380,25 @@ impl LockfilePackageGraph {
               LockfilePkgId::Npm(id) => id.0,
             },
             NpmPackageInfo {
-              integrity: package.integrity.clone(),
+              integrity: package.integrity,
               dependencies: package
                 .dependencies
+                .into_iter()
+                .map(|(name, id)| (name, id.0))
+                .collect(),
+              cpu: package.cpu,
+              os: package.os,
+              tarball: package.tarball.clone(),
+              optional_dependencies: package
+                .optional_dependencies
+                .into_iter()
+                .map(|(name, id)| (name, id.0))
+                .collect(),
+              deprecated: package.deprecated,
+              has_scripts: package.has_scripts,
+              has_bin: package.has_bin,
+              optional_peers: package
+                .optional_peers
                 .into_iter()
                 .map(|(name, id)| (name, id.0))
                 .collect(),
