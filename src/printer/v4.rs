@@ -1,5 +1,3 @@
-// Copyright 2018-2024 the Deno authors. MIT license.
-
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -19,8 +17,6 @@ use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
 
-pub(crate) mod v4;
-
 #[derive(Serialize)]
 struct SerializedJsrPkg<'a> {
   integrity: &'a str,
@@ -29,33 +25,12 @@ struct SerializedJsrPkg<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct SerializedNpmPkg<'a> {
   /// Will be `None` for patch packages.
   #[serde(skip_serializing_if = "Option::is_none")]
   integrity: Option<&'a str>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   dependencies: Vec<Cow<'a, str>>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  optional_dependencies: Vec<Cow<'a, str>>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  optional_peers: Vec<Cow<'a, str>>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  os: Vec<SmallStackString>,
-  #[serde(skip_serializing_if = "Vec::is_empty")]
-  cpu: Vec<SmallStackString>,
-  #[serde(skip_serializing_if = "is_false")]
-  deprecated: bool,
-  #[serde(skip_serializing_if = "is_false")]
-  has_scripts: bool,
-  #[serde(skip_serializing_if = "is_false")]
-  has_bin: bool,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  tarball: Option<&'a str>,
-}
-
-fn is_false(value: &bool) -> bool {
-  !value
 }
 
 // WARNING: It's important to implement Ord/PartialOrd on the final
@@ -138,7 +113,7 @@ impl SerializedWorkspaceConfigContent<'_> {
 }
 
 #[derive(Serialize)]
-struct LockfileV5<'a> {
+struct LockfileV4<'a> {
   // order these based on auditability
   version: &'static str,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -155,7 +130,7 @@ struct LockfileV5<'a> {
   workspace: SerializedWorkspaceConfigContent<'a>,
 }
 
-pub fn print_v5_content(content: &LockfileContent) -> String {
+pub fn print_v4_content(content: &LockfileContent) -> String {
   fn handle_jsr<'a>(
     jsr: &'a BTreeMap<PackageNv, JsrPackageInfo>,
     specifiers: &HashMap<JsrDepPackageReq, SmallStackString>,
@@ -239,53 +214,41 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
         .or_default();
     }
 
-    fn handle_deps<'a>(
-      deps: &'a BTreeMap<StackString, StackString>,
-      pkg_had_multiple_versions: &HashMap<&str, bool>,
-    ) -> Vec<Cow<'a, str>> {
-      deps
-        .iter()
-        .filter_map(|(key, id)| {
-          let (name, version) = extract_nv_from_id(id)?;
-          if name == key {
-            let has_single_version = pkg_had_multiple_versions
-              .get(name)
-              .map(|had_multiple| !had_multiple)
-              .unwrap_or(false);
-            if has_single_version {
-              Some(Cow::Borrowed(name))
-            } else {
-              Some(Cow::Borrowed(id))
-            }
-          } else {
-            Some(Cow::Owned(format!("{}@npm:{}@{}", key, name, version)))
-          }
-        })
-        .collect::<Vec<_>>()
-    }
-
     npm
       .iter()
       .map(|(key, value)| {
-        let dependencies =
-          handle_deps(&value.dependencies, &pkg_had_multiple_versions);
-        let optional_dependencies =
-          handle_deps(&value.optional_dependencies, &pkg_had_multiple_versions);
-        let optional_peers =
-          handle_deps(&value.optional_peers, &pkg_had_multiple_versions);
         (
           key.as_str(),
           SerializedNpmPkg {
             integrity: value.integrity.as_deref(),
-            dependencies,
-            optional_dependencies,
-            optional_peers,
-            os: value.os.clone(),
-            cpu: value.cpu.clone(),
-            tarball: value.tarball.as_deref(),
-            deprecated: value.deprecated,
-            has_scripts: value.has_scripts,
-            has_bin: value.has_bin,
+            dependencies: {
+              let mut deps: Vec<Cow<'_, str>> = value
+                .dependencies
+                .iter()
+                .chain(value.optional_dependencies.iter())
+                .filter_map(|(key, id)| {
+                  let (name, version) = extract_nv_from_id(id)?;
+                  if name == key {
+                    let has_single_version = pkg_had_multiple_versions
+                      .get(name)
+                      .map(|had_multiple| !had_multiple)
+                      .unwrap_or(false);
+                    if has_single_version {
+                      Some(Cow::Borrowed(name))
+                    } else {
+                      Some(Cow::Borrowed(id))
+                    }
+                  } else {
+                    Some(Cow::Owned(format!(
+                      "{}@npm:{}@{}",
+                      key, name, version
+                    )))
+                  }
+                })
+                .collect();
+              deps.sort();
+              deps
+            },
           },
         )
       })
@@ -359,8 +322,8 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
     specifiers.insert(SerializedJsrDepPackageReq::new(key), value.as_str());
   }
 
-  let lockfile = LockfileV5 {
-    version: "5",
+  let lockfile = LockfileV4 {
+    version: "4",
     specifiers,
     jsr: handle_jsr(&content.packages.jsr, &content.packages.specifiers),
     npm: handle_npm(&content.packages.npm),
