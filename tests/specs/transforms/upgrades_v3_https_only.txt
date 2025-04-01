@@ -18,7 +18,7 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "redirects": {
     "https://esm.sh/v135/@types/babel__helper-validator-identifier@~7/index.d.ts": "https://esm.sh/v135/@types/babel__helper-validator-identifier@7.15.2/index.d.ts"
   },

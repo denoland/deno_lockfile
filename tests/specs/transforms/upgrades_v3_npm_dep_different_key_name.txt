@@ -3,10 +3,10 @@
   "version": "3",
   "packages": {
     "npm": {
-      "@a/pkg@2.1.5": {
+      "@aa/pkg@2.1.5": {
         "integrity": "sha512-a1",
         "dependencies": {
-          "other_name": "@b/pkg@2.0.5"
+          "othername": "@b/pkg@2.0.5"
         }
       },
       "@b/pkg@2.0.5": {
@@ -20,16 +20,32 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "npm": {
-    "@a/pkg@2.1.5": {
+    "@aa/pkg@2.1.5": {
       "integrity": "sha512-a1",
-      "dependencies": [
-        "other_name@npm:@b/pkg@2.0.5"
-      ]
+      "optionalDependencies": [
+        "othername@npm:@b/pkg@2.0.5"
+      ],
+      "optionalPeers": [
+        "optionalpeerdep@npm:@z/pkg@1.0.0"
+      ],
+      "os": [
+        "darwin",
+        "linux",
+        "win32"
+      ],
+      "cpu": [
+        "x86_64"
+      ],
+      "hasScripts": true,
+      "hasBin": true,
+      "tarball": "https://fake-registry.com/a/pkg-2.1.5.tgz"
     },
     "@b/pkg@2.0.5": {
-      "integrity": "sha512-b1"
+      "integrity": "sha512-b1",
+      "deprecated": true,
+      "tarball": "https://fake-registry.com/b/pkg-2.0.5.tgz"
     }
   }
 }

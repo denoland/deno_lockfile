@@ -942,7 +942,7 @@
 
 # output
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "npm:@spotify/web-api-ts-sdk@*": "1.2.0",
     "npm:autoprefixer@10.4.16": "10.4.16_postcss@8.4.31",
@@ -976,8 +976,7 @@
       "dependencies": [
         "caniuse-lite",
         "electron-to-chromium",
-        "node-releases",
-        "update-browserslist-db"
+        "node-releases"
       ]
     },
     "caniuse-api@3.0.0": {

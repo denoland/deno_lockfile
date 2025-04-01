@@ -204,7 +204,7 @@
 
 # will maintain npm because --no-npm was specified
 {
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:@scope/package_orphan@*": "0.0.1",
     "npm:ts-morph@*": "21.0.1"
