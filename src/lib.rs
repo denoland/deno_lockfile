@@ -530,14 +530,21 @@ impl Lockfile {
     async fn load_content(
       content: &str,
       provider: &dyn NpmPackageInfoProvider,
+      next_version: bool,
     ) -> Result<LockfileContent, LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
       let value = match version {
-        Some("5") => value,
-        Some("4") => transforms::transform4_to_5(value, provider).await?,
+        Some("5") if next_version => value,
+        Some("4") => {
+          if next_version {
+            transforms::transform4_to_5(value, provider).await?
+          } else {
+            value
+          }
+        }
         Some("3") => {
           transforms::transform4_to_5(
             transforms::transform3_to_4(value)?,
@@ -590,13 +597,12 @@ impl Lockfile {
         source: LockfileErrorReason::Empty,
       }));
     }
-    let content =
-      load_content(opts.content, provider)
-        .await
-        .map_err(|reason| LockfileError {
-          file_path: opts.file_path.display().to_string(),
-          source: reason,
-        })?;
+    let content = load_content(opts.content, provider, opts.next_version)
+      .await
+      .map_err(|reason| LockfileError {
+        file_path: opts.file_path.display().to_string(),
+        source: reason,
+      })?;
     Ok(Lockfile {
       overwrite: opts.overwrite,
       has_content_changed: false,
@@ -611,14 +617,22 @@ impl Lockfile {
   ) -> Result<Lockfile, Box<LockfileError>> {
     fn load_content(
       content: &str,
+      next_version: bool,
     ) -> Result<LockfileContent, LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
       let value = match version {
-        Some("5") => value,
-        Some("4" | "3" | "2") | None => {
+        Some("5") if next_version => value,
+        Some("4") => {
+          if next_version {
+            return Err(LockfileErrorReason::TransformNeeded);
+          } else {
+            value
+          }
+        }
+        Some("3" | "2") | None => {
           return Err(LockfileErrorReason::TransformNeeded)
         }
         Some(version) => {
@@ -652,9 +666,11 @@ impl Lockfile {
     }
 
     let content =
-      load_content(opts.content).map_err(|reason| LockfileError {
-        file_path: opts.file_path.display().to_string(),
-        source: reason,
+      load_content(opts.content, opts.next_version).map_err(|reason| {
+        LockfileError {
+          file_path: opts.file_path.display().to_string(),
+          source: reason,
+        }
       })?;
     Ok(Lockfile {
       overwrite: opts.overwrite,
