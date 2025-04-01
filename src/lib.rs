@@ -94,7 +94,9 @@ pub struct NpmPackageInfo {
   pub optional_dependencies: BTreeMap<StackString, StackString>,
   #[serde(default)]
   pub optional_peers: BTreeMap<StackString, StackString>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub os: Vec<SmallStackString>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub cpu: Vec<SmallStackString>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub tarball: Option<StackString>,
