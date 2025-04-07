@@ -529,21 +529,27 @@ impl Lockfile {
     opts: NewLockfileOptions<'_>,
     provider: &dyn NpmPackageInfoProvider,
   ) -> Result<Lockfile, Box<LockfileError>> {
+    /// returns lockfile content and whether it required a transform
     async fn load_content(
       content: &str,
       provider: &dyn NpmPackageInfoProvider,
       next_version: bool,
-    ) -> Result<LockfileContent, LockfileErrorReason> {
+    ) -> Result<(LockfileContent, bool), LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
+      let mut transformed = true;
       let value = match version {
-        Some("5") if next_version => value,
+        Some("5") if next_version => {
+          transformed = false;
+          value
+        }
         Some("4") => {
           if next_version {
             transforms::transform4_to_5(value, provider).await?
           } else {
+            transformed = false;
             value
           }
         }
@@ -579,7 +585,7 @@ impl Lockfile {
       let content = LockfileContent::from_json(value.into())
         .map_err(LockfileErrorReason::DeserializationError)?;
 
-      Ok(content)
+      Ok((content, transformed))
     }
 
     // Writing a lock file always uses the new format.
@@ -599,15 +605,16 @@ impl Lockfile {
         source: LockfileErrorReason::Empty,
       }));
     }
-    let content = load_content(opts.content, provider, opts.next_version)
-      .await
-      .map_err(|reason| LockfileError {
-        file_path: opts.file_path.display().to_string(),
-        source: reason,
-      })?;
+    let (content, transformed) =
+      load_content(opts.content, provider, opts.next_version)
+        .await
+        .map_err(|reason| LockfileError {
+          file_path: opts.file_path.display().to_string(),
+          source: reason,
+        })?;
     Ok(Lockfile {
       overwrite: opts.overwrite,
-      has_content_changed: false,
+      has_content_changed: transformed,
       content,
       filename: opts.file_path,
       next_version: opts.next_version,
@@ -1119,7 +1126,7 @@ mod tests {
 
   const LOCKFILE_JSON: &str = r#"
 {
-  "version": "4",
+  "version": "5",
   "npm": {
     "nanoid@3.3.4": {
       "integrity": "sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw=="
@@ -1446,7 +1453,7 @@ mod tests {
     let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
-  "version": "4",
+  "version": "5",
   "redirects": {
     "https://deno.land/x/std/mod.ts": "https://deno.land/std@0.190.0/mod.ts"
   }
@@ -1487,7 +1494,7 @@ mod tests {
     let mut lockfile = new_lockfile(NewLockfileOptions {
       file_path: PathBuf::from("/foo/deno.lock"),
       content: r#"{
-  "version": "4",
+  "version": "5",
   "specifiers": {
     "jsr:path": "jsr:@std/path@0.75.0"
   }
@@ -1649,5 +1656,29 @@ mod tests {
     .err()
     .unwrap();
     assert!(matches!(err.source, LockfileErrorReason::Empty));
+  }
+
+  #[test]
+  fn transform_marks_lockfile_as_changed() {
+    let content: &str = r#"{
+      "version": "4"
+    }"#;
+    let file_path = PathBuf::from("lockfile.json");
+    let lockfile = new_lockfile(NewLockfileOptions {
+      file_path: file_path.clone(),
+      content,
+      overwrite: false,
+      next_version: true,
+    })
+    .unwrap();
+    assert!(lockfile.has_content_changed);
+    let lockfile = new_lockfile(NewLockfileOptions {
+      file_path,
+      content,
+      overwrite: false,
+      next_version: false,
+    })
+    .unwrap();
+    assert!(!lockfile.has_content_changed);
   }
 }
