@@ -538,6 +538,12 @@ impl Lockfile {
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
+      // When the value is transformed, we don't consider that a lockfile
+      // change that should update the lockfile because we want to reduce
+      // lockfile churn. For example, say someone with a new version of
+      // Deno does a PR to a repo that has an old lockfile, but they
+      // don't update any dependencies. In that case, we don't want to
+      // have that PR include a lockfile change.
       let value = match version {
         Some("5") if next_version => value,
         Some("4") => {
