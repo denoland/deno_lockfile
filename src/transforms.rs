@@ -198,8 +198,6 @@ struct IdParts {
   key: String,
   package_name: String,
   version: String,
-  #[allow(dead_code)]
-  peer_deps: Option<String>,
 }
 fn split_id(
   id: &str,
@@ -226,15 +224,11 @@ fn split_id(
     }
     None => (left, left, right),
   };
-  let (version, peer_deps) = version
-    .split_once('_')
-    .map(|(v, p)| (v, Some(p.to_string())))
-    .unwrap_or((version, None));
+  let version = version.split_once('_').map(|(v, _)| v).unwrap_or(version);
   Some(IdParts {
-    key: key.to_string(),
-    package_name: package_name.to_string(),
-    version: version.to_string(),
-    peer_deps,
+    key: key.into(),
+    package_name: package_name.into(),
+    version: version.into(),
   })
 }
 
@@ -718,17 +712,11 @@ mod test {
     );
   }
 
-  fn parts(
-    key: &str,
-    package_name: &str,
-    version: &str,
-    peer_deps: Option<&str>,
-  ) -> Option<IdParts> {
+  fn parts(key: &str, package_name: &str, version: &str) -> Option<IdParts> {
     Some(IdParts {
       key: key.to_string(),
       package_name: package_name.to_string(),
       version: version.to_string(),
-      peer_deps: peer_deps.map(|s| s.to_string()),
     })
   }
 
@@ -736,30 +724,19 @@ mod test {
   fn test_split_id() {
     let mut version_by_dep_name = HashMap::default();
     let ids = [
-      (
-        "package-a@1.0.0",
-        parts("package-a", "package-a", "1.0.0", None),
-      ),
+      ("package-a@1.0.0", parts("package-a", "package-a", "1.0.0")),
       (
         "othername@npm:package-b@1.0.0",
-        parts("othername", "package-b", "1.0.0", None),
+        parts("othername", "package-b", "1.0.0"),
       ),
       (
         "package-c@1.0.0_package-d@1.0.0",
-        parts("package-c", "package-c", "1.0.0", Some("package-d@1.0.0")),
+        parts("package-c", "package-c", "1.0.0"),
       ),
-      (
-        "package-d@1.0.0",
-        parts("package-d", "package-d", "1.0.0", None),
-      ),
+      ("package-d@1.0.0", parts("package-d", "package-d", "1.0.0")),
       (
         "othername@npm:package-b@1.0.0_package-d@1.0.0_package-e@1.0.0",
-        parts(
-          "othername",
-          "package-b",
-          "1.0.0",
-          Some("package-d@1.0.0_package-e@1.0.0"),
-        ),
+        parts("othername", "package-b", "1.0.0"),
       ),
     ];
     for (id, expected) in ids {
