@@ -193,46 +193,49 @@ pub fn transform3_to_4(mut json: JsonMap) -> Result<JsonMap, TransformError> {
 )]
 pub struct MissingNpmPackageInfo;
 
+#[derive(Debug, PartialEq, Eq)]
+struct IdParts {
+  key: String,
+  package_name: String,
+  version: String,
+}
+fn split_id(
+  id: &str,
+  version_by_dep_name: &HashMap<String, String>,
+) -> Option<IdParts> {
+  let (left, right) = match extract_nv_from_id(id) {
+    Some((name, version)) => (name, version),
+    None => match version_by_dep_name.get(id) {
+      Some(version) => (id, &**version),
+      None => {
+        return None;
+      }
+    },
+  };
+  let (key, package_name, version) = match right.strip_prefix("npm:") {
+    Some(right) => {
+      // ex. key@npm:package-a@version
+      match extract_nv_from_id(right) {
+        Some((package_name, version)) => (left, package_name, version),
+        None => {
+          return None;
+        }
+      }
+    }
+    None => (left, left, right),
+  };
+  let version = version.split_once('_').map(|(v, _)| v).unwrap_or(version);
+  Some(IdParts {
+    key: key.into(),
+    package_name: package_name.into(),
+    version: version.into(),
+  })
+}
+
 pub async fn transform4_to_5(
   mut json: JsonMap,
   info_provider: &dyn NpmPackageInfoProvider,
 ) -> Result<JsonMap, TransformError> {
-  struct IdParts {
-    key: String,
-    package_name: String,
-    version: String,
-  }
-  fn split_id(
-    id: &str,
-    version_by_dep_name: &HashMap<String, String>,
-  ) -> Option<IdParts> {
-    let (left, right) = match extract_nv_from_id(id) {
-      Some((name, version)) => (name, version),
-      None => match version_by_dep_name.get(id) {
-        Some(version) => (id, &**version),
-        None => {
-          return None;
-        }
-      },
-    };
-    let (key, package_name, version) = match right.strip_prefix("npm:") {
-      Some(right) => {
-        // ex. key@npm:package-a@version
-        match extract_nv_from_id(right) {
-          Some((package_name, version)) => (left, package_name, version),
-          None => {
-            return None;
-          }
-        }
-      }
-      None => (left, left, right),
-    };
-    Some(IdParts {
-      key: key.to_string(),
-      package_name: package_name.to_string(),
-      version: version.to_string(),
-    })
-  }
   json.insert("version".into(), "5".into());
 
   if let Some(Value::Object(mut npm)) = json.remove("npm") {
@@ -707,5 +710,43 @@ mod test {
       }))
       .unwrap()
     );
+  }
+
+  fn parts(key: &str, package_name: &str, version: &str) -> Option<IdParts> {
+    Some(IdParts {
+      key: key.to_string(),
+      package_name: package_name.to_string(),
+      version: version.to_string(),
+    })
+  }
+
+  #[test]
+  fn test_split_id() {
+    let mut version_by_dep_name = HashMap::default();
+    let ids = [
+      ("package-a@1.0.0", parts("package-a", "package-a", "1.0.0")),
+      (
+        "othername@npm:package-b@1.0.0",
+        parts("othername", "package-b", "1.0.0"),
+      ),
+      (
+        "package-c@1.0.0_package-d@1.0.0",
+        parts("package-c", "package-c", "1.0.0"),
+      ),
+      ("package-d@1.0.0", parts("package-d", "package-d", "1.0.0")),
+      (
+        "othername@npm:package-b@1.0.0_package-d@1.0.0_package-e@1.0.0",
+        parts("othername", "package-b", "1.0.0"),
+      ),
+    ];
+    for (id, expected) in ids {
+      let id_parts = split_id(id, &version_by_dep_name);
+      assert_eq!(id_parts, expected);
+      if let Some(id_parts) = id_parts {
+        version_by_dep_name.insert(id_parts.package_name, id_parts.version);
+      } else {
+        panic!("failed to split {id}");
+      }
+    }
   }
 }
