@@ -498,7 +498,6 @@ pub struct NewLockfileOptions<'a> {
   pub file_path: PathBuf,
   pub content: &'a str,
   pub overwrite: bool,
-  pub next_version: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -507,21 +506,15 @@ pub struct Lockfile {
   pub has_content_changed: bool,
   pub content: LockfileContent,
   pub filename: PathBuf,
-  next_version: bool,
 }
 
 impl Lockfile {
-  pub fn new_empty(
-    filename: PathBuf,
-    overwrite: bool,
-    next_version: bool,
-  ) -> Lockfile {
+  pub fn new_empty(filename: PathBuf, overwrite: bool) -> Lockfile {
     Lockfile {
       overwrite,
       has_content_changed: false,
       content: LockfileContent::default(),
       filename,
-      next_version,
     }
   }
 
@@ -532,7 +525,6 @@ impl Lockfile {
     async fn load_content(
       content: &str,
       provider: &dyn NpmPackageInfoProvider,
-      next_version: bool,
     ) -> Result<LockfileContent, LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
@@ -545,14 +537,8 @@ impl Lockfile {
       // don't update any dependencies. In that case, we don't want to
       // have that PR include a lockfile change.
       let value = match version {
-        Some("5") if next_version => value,
-        Some("4") => {
-          if next_version {
-            transforms::transform4_to_5(value, provider).await?
-          } else {
-            value
-          }
-        }
+        Some("5") => value,
+        Some("4") => transforms::transform4_to_5(value, provider).await?,
         Some("3") => {
           transforms::transform4_to_5(
             transforms::transform3_to_4(value)?,
@@ -595,7 +581,6 @@ impl Lockfile {
         filename: opts.file_path,
         has_content_changed: false,
         content: LockfileContent::default(),
-        next_version: opts.next_version,
       });
     }
 
@@ -605,18 +590,18 @@ impl Lockfile {
         source: LockfileErrorReason::Empty,
       }));
     }
-    let content = load_content(opts.content, provider, opts.next_version)
-      .await
-      .map_err(|reason| LockfileError {
-        file_path: opts.file_path.display().to_string(),
-        source: reason,
-      })?;
+    let content =
+      load_content(opts.content, provider)
+        .await
+        .map_err(|reason| LockfileError {
+          file_path: opts.file_path.display().to_string(),
+          source: reason,
+        })?;
     Ok(Lockfile {
       overwrite: opts.overwrite,
       has_content_changed: false,
       content,
       filename: opts.file_path,
-      next_version: opts.next_version,
     })
   }
 
@@ -625,20 +610,15 @@ impl Lockfile {
   ) -> Result<Lockfile, Box<LockfileError>> {
     fn load_content(
       content: &str,
-      next_version: bool,
     ) -> Result<LockfileContent, LockfileErrorReason> {
       let value: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(content)
           .map_err(LockfileErrorReason::ParseError)?;
       let version = value.get("version").and_then(|v| v.as_str());
       let value = match version {
-        Some("5") if next_version => value,
+        Some("5") => value,
         Some("4") => {
-          if next_version {
-            return Err(LockfileErrorReason::TransformNeeded);
-          } else {
-            value
-          }
+          return Err(LockfileErrorReason::TransformNeeded);
         }
         Some("3" | "2") | None => {
           return Err(LockfileErrorReason::TransformNeeded)
@@ -662,7 +642,6 @@ impl Lockfile {
         filename: opts.file_path,
         has_content_changed: false,
         content: LockfileContent::default(),
-        next_version: opts.next_version,
       });
     }
 
@@ -674,27 +653,20 @@ impl Lockfile {
     }
 
     let content =
-      load_content(opts.content, opts.next_version).map_err(|reason| {
-        LockfileError {
-          file_path: opts.file_path.display().to_string(),
-          source: reason,
-        }
+      load_content(opts.content).map_err(|reason| LockfileError {
+        file_path: opts.file_path.display().to_string(),
+        source: reason,
       })?;
     Ok(Lockfile {
       overwrite: opts.overwrite,
       has_content_changed: false,
       content,
       filename: opts.file_path,
-      next_version: opts.next_version,
     })
   }
 
   pub fn as_json_string(&self) -> String {
-    let mut text = if self.next_version {
-      printer::print_v5_content(&self.content)
-    } else {
-      printer::v4::print_v4_content(&self.content)
-    };
+    let mut text = printer::print_v5_content(&self.content);
     text.reserve(1);
     text.push('\n');
     text
@@ -1173,7 +1145,6 @@ mod tests {
       file_path,
       content: LOCKFILE_JSON,
       overwrite,
-      next_version: true,
     })
   }
 
@@ -1184,7 +1155,6 @@ mod tests {
       file_path,
       content: "{ \"version\": \"2000\" }",
       overwrite: false,
-      next_version: true,
     })
     .unwrap_err();
     match err.source {
@@ -1217,7 +1187,6 @@ mod tests {
       file_path,
       content: LOCKFILE_JSON,
       overwrite: false,
-      next_version: true,
     })
     .unwrap();
 
@@ -1427,7 +1396,6 @@ mod tests {
 }"#,
 
       overwrite: false,
-      next_version: true,
     })
     .unwrap();
     lockfile.content.redirects.insert(
@@ -1458,7 +1426,6 @@ mod tests {
   }
 }"#,
       overwrite: false,
-      next_version: true,
     })
     .unwrap();
     lockfile.insert_redirect(
@@ -1499,7 +1466,6 @@ mod tests {
   }
 }"#,
       overwrite: false,
-      next_version: true,
     })
     .unwrap();
     lockfile.insert_package_specifier(
@@ -1540,7 +1506,6 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      next_version: true,
     })
     .unwrap();
     assert_eq!(lockfile.content.remote.len(), 2);
@@ -1575,7 +1540,6 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      next_version: true,
     })
     .unwrap();
     assert_eq!(lockfile.content.packages.npm.len(), 2);
@@ -1600,7 +1564,6 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      next_version: true,
     })
     .unwrap();
 
@@ -1650,7 +1613,6 @@ mod tests {
       file_path,
       content,
       overwrite: false,
-      next_version: true,
     })
     .err()
     .unwrap();

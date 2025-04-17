@@ -19,8 +19,6 @@ use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
 
-pub(crate) mod v4;
-
 #[derive(Serialize)]
 struct SerializedJsrPkg<'a> {
   integrity: &'a str,
