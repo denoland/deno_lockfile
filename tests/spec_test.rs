@@ -52,15 +52,10 @@ fn run_test(test: &CollectedTest) -> TestResult {
     futures_lite::future::block_on(async_executor::Executor::new().run(
       async move {
         if test.name.starts_with("specs::config_changes::") {
-          config_changes_test(test, false).await;
+          config_changes_test(test).await;
           TestResult::Passed
         } else if test.name.starts_with("specs::transforms::") {
-          transforms_test(test, false).await
-        } else if test.name.starts_with("specs::v4::config_changes::") {
-          config_changes_test(test, true).await;
-          TestResult::Passed
-        } else if test.name.starts_with("specs::v4::transforms::") {
-          transforms_test(test, true).await
+          transforms_test(test).await
         } else {
           panic!("Unknown test: {}", test.name);
         }
@@ -77,7 +72,7 @@ fn from_maybe_panic_async<T>(
   })
 }
 
-async fn config_changes_test(test: &CollectedTest, v4: bool) {
+async fn config_changes_test(test: &CollectedTest) {
   #[derive(Debug, Default, Clone, Serialize, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
   struct LockfilePackageJsonContent {
@@ -182,7 +177,6 @@ async fn config_changes_test(test: &CollectedTest, v4: bool) {
       file_path: test.path.with_extension("lock"),
       content: &spec.original_text.text,
       overwrite: false,
-      next_version: !v4,
     },
     &TestNpmPackageInfoProvider::default(),
   )
@@ -323,7 +317,7 @@ fn package_file_name(package: &PackageNv) -> String {
   )
 }
 
-async fn transforms_test(test: &CollectedTest, v4: bool) -> TestResult {
+async fn transforms_test(test: &CollectedTest) -> TestResult {
   let text = test.read_to_string().unwrap();
   let mut sections = SpecSection::parse_many(&text);
   assert_eq!(sections.len(), 2);
@@ -334,7 +328,6 @@ async fn transforms_test(test: &CollectedTest, v4: bool) -> TestResult {
       file_path: test.path.with_extension("lock"),
       content: &original_section.text,
       overwrite: false,
-      next_version: !v4,
     },
     &TestNpmPackageInfoProvider::default(),
   )
@@ -367,7 +360,6 @@ async fn transforms_test(test: &CollectedTest, v4: bool) -> TestResult {
             file_path: test.path.with_extension("lock"),
             content: &actual_text,
             overwrite: false,
-            next_version: !v4,
           },
           &TestNpmPackageInfoProvider::default(),
         )

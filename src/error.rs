@@ -29,8 +29,6 @@ pub enum LockfileErrorReason {
     "Failed upgrading lockfile to latest version. Lockfile may be corrupt"
   )]
   TransformError(#[source] TransformError),
-  #[error("Transform needed")]
-  TransformNeeded,
 }
 
 impl From<TransformError> for LockfileErrorReason {

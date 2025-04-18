@@ -14,8 +14,7 @@ use deno_semver::jsr::JsrDepPackageReq;
 fn adding_workspace_does_not_cause_content_changes() {
   // should maintain the has_content_changed flag when lockfile empty
   {
-    let mut lockfile =
-      Lockfile::new_empty(PathBuf::from("./deno.lock"), true, true);
+    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
 
     assert!(!lockfile.has_content_changed);
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
@@ -38,8 +37,7 @@ fn adding_workspace_does_not_cause_content_changes() {
 
   // should maintain has_content_changed flag when true and lockfile is empty
   {
-    let mut lockfile =
-      Lockfile::new_empty(PathBuf::from("./deno.lock"), true, true);
+    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
     lockfile.has_content_changed = true;
     lockfile.set_workspace_config(SetWorkspaceConfigOptions {
       no_config: false,
@@ -61,8 +59,7 @@ fn adding_workspace_does_not_cause_content_changes() {
 
   // should not maintain the has_content_changed flag when lockfile is not empty
   {
-    let mut lockfile =
-      Lockfile::new_empty(PathBuf::from("./deno.lock"), true, true);
+    let mut lockfile = Lockfile::new_empty(PathBuf::from("./deno.lock"), true);
     lockfile
       .content
       .redirects
