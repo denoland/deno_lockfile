@@ -30,14 +30,8 @@
       "optionalPeers": [
         "optionalpeerdep@npm:@z/pkg@1.0.0"
       ],
-      "os": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "cpu": [
-        "x86_64"
-      ],
+      "os": ["darwin", "linux", "win32"],
+      "cpu": ["x86_64"],
       "hasScripts": true,
       "hasBin": true,
       "tarball": "https://fake-registry.com/a/pkg-2.1.5.tgz"
