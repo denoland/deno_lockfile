@@ -394,13 +394,13 @@ struct Formatter<'a> {
   has_value: bool,
 }
 
-impl<'a> Default for Formatter<'a> {
+impl Default for Formatter<'_> {
   fn default() -> Self {
     Self::new()
   }
 }
 
-impl<'a> Formatter<'a> {
+impl Formatter<'_> {
   pub fn new() -> Self {
     Self {
       last_key: None,
@@ -414,7 +414,7 @@ impl<'a> Formatter<'a> {
 
 // copied from serde_json::ser::PrettyFormatter
 // except for the os and cpu handling
-impl<'a> serde_json::ser::Formatter for Formatter<'a> {
+impl serde_json::ser::Formatter for Formatter<'_> {
   #[inline]
   fn write_string_fragment<W>(
     &mut self,
