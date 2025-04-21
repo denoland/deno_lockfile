@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io;
 
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
@@ -366,5 +367,300 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
     remote: &content.remote,
     workspace: handle_workspace(&content.workspace),
   };
-  serde_json::to_string_pretty(&lockfile).unwrap()
+  let mut writer = Vec::with_capacity(1024);
+  let mut serializer =
+    serde_json::Serializer::with_formatter(&mut writer, Formatter::default());
+  lockfile.serialize(&mut serializer).unwrap();
+  String::from_utf8(writer).unwrap()
+}
+
+fn indent<W>(wr: &mut W, n: usize, s: &[u8]) -> io::Result<()>
+where
+  W: ?Sized + io::Write,
+{
+  for _ in 0..n {
+    wr.write_all(s)?;
+  }
+
+  Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Formatter<'a> {
+  last_key: Option<String>,
+  in_key: bool,
+  current_indent: usize,
+  indent: &'a [u8],
+  has_value: bool,
+}
+
+impl Default for Formatter<'_> {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl Formatter<'_> {
+  pub fn new() -> Self {
+    Self {
+      last_key: None,
+      in_key: false,
+      current_indent: 0,
+      indent: b"  ",
+      has_value: false,
+    }
+  }
+}
+
+// copied from serde_json::ser::PrettyFormatter
+// except for the os and cpu handling
+impl serde_json::ser::Formatter for Formatter<'_> {
+  #[inline]
+  fn write_string_fragment<W>(
+    &mut self,
+    writer: &mut W,
+    fragment: &str,
+  ) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    if self.in_key {
+      if let Some(last_key) = &mut self.last_key {
+        last_key.push_str(fragment);
+      }
+    }
+    writer.write_all(fragment.as_bytes())
+  }
+  #[inline]
+  fn begin_array<W>(&mut self, writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    let mut should_indent = true;
+    if let Some(last_key) = &self.last_key {
+      if last_key == "os" || last_key == "cpu" {
+        should_indent = false;
+      }
+    }
+    if should_indent {
+      self.current_indent += 1;
+    }
+    self.has_value = false;
+    writer.write_all(b"[")
+  }
+
+  #[inline]
+  fn end_array<W>(&mut self, writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    let mut should_dedent = true;
+    if let Some(last_key) = &self.last_key {
+      if last_key == "os" || last_key == "cpu" {
+        should_dedent = false;
+      }
+    }
+    if should_dedent {
+      self.current_indent -= 1;
+    }
+
+    if self.has_value && should_dedent {
+      writer.write_all(b"\n")?;
+      indent(writer, self.current_indent, self.indent)?;
+    }
+
+    writer.write_all(b"]")
+  }
+
+  #[inline]
+  fn begin_array_value<W>(
+    &mut self,
+    writer: &mut W,
+    first: bool,
+  ) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    if let Some(last_key) = &self.last_key {
+      if last_key == "os" || last_key == "cpu" {
+        if !first {
+          writer.write_all(b", ")?;
+        }
+
+        return Ok(());
+      }
+    }
+    writer.write_all(if first { b"\n" } else { b",\n" })?;
+    indent(writer, self.current_indent, self.indent)
+  }
+
+  #[inline]
+  fn end_array_value<W>(&mut self, _writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    self.has_value = true;
+    Ok(())
+  }
+
+  #[inline]
+  fn begin_object<W>(&mut self, writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    self.current_indent += 1;
+    self.has_value = false;
+    writer.write_all(b"{")
+  }
+
+  #[inline]
+  fn end_object<W>(&mut self, writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    self.current_indent -= 1;
+
+    if self.has_value {
+      writer.write_all(b"\n")?;
+      indent(writer, self.current_indent, self.indent)?;
+    }
+
+    writer.write_all(b"}")
+  }
+
+  #[inline]
+  fn begin_object_key<W>(
+    &mut self,
+    writer: &mut W,
+    first: bool,
+  ) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    self.last_key = Some(String::new());
+    self.in_key = true;
+    writer.write_all(if first { b"\n" } else { b",\n" })?;
+    indent(writer, self.current_indent, self.indent)
+  }
+
+  #[inline]
+  fn end_object_key<W>(&mut self, _writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    self.in_key = false;
+    Ok(())
+  }
+
+  #[inline]
+  fn begin_object_value<W>(&mut self, writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    writer.write_all(b": ")
+  }
+
+  #[inline]
+  fn end_object_value<W>(&mut self, _writer: &mut W) -> io::Result<()>
+  where
+    W: ?Sized + io::Write,
+  {
+    self.has_value = true;
+    self.last_key = None;
+    Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use pretty_assertions::assert_eq;
+
+  #[must_use]
+  pub fn trim_indent(mut text: &str) -> String {
+    if text.starts_with('\n') {
+      text = &text[1..];
+    }
+    // text = text.trim();
+    let indent = text
+      .lines()
+      .filter(|l| !l.trim().is_empty())
+      .map(|l| l.len() - l.trim_start().len())
+      .min()
+      .unwrap_or(0);
+
+    text
+      .split_inclusive('\n')
+      .map(|l| {
+        if l.len() <= indent {
+          l.trim_start()
+        } else {
+          &l[indent..]
+        }
+      })
+      .collect()
+  }
+
+  fn to_string_formatted(value: &serde_json::Value) -> String {
+    let mut writer = Vec::new();
+    let mut serializer =
+      serde_json::Serializer::with_formatter(&mut writer, Formatter::default());
+    value.serialize(&mut serializer).unwrap();
+    String::from_utf8(writer).unwrap()
+  }
+
+  #[test]
+  fn test_formatter() {
+    let value = serde_json::json!({
+      "os": ["darwin", "linux"],
+      "cpu": ["x64", "arm64"]
+    });
+    let output = to_string_formatted(&value);
+    let expected = trim_indent(
+      r#"
+      {
+        "cpu": ["x64", "arm64"],
+        "os": ["darwin", "linux"]
+      }"#,
+    );
+    assert_eq!(output, expected);
+
+    let value = serde_json::json!({
+      "foo": {
+        "bar": [
+          {
+            "os": ["darwin", "linux"],
+            "cpu": ["x64"]
+          },
+          {
+            "os\nos": ["foo"],
+            "cpu\ncpu": ["bar"]
+          }
+        ]
+      }
+    });
+    let output = to_string_formatted(&value);
+    let expected = trim_indent(
+      r#"
+      {
+        "foo": {
+          "bar": [
+            {
+              "cpu": ["x64"],
+              "os": ["darwin", "linux"]
+            },
+            {
+              "cpu\ncpu": [
+                "bar"
+              ],
+              "os\nos": [
+                "foo"
+              ]
+            }
+          ]
+        }
+      }"#,
+    );
+    assert_eq!(output, expected);
+  }
 }

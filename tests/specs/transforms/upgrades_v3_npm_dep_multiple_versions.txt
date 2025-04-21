@@ -41,14 +41,8 @@
       "optionalDependencies": [
         "@b/pkg"
       ],
-      "os": [
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "cpu": [
-        "x86_64"
-      ],
+      "os": ["darwin", "linux", "win32"],
+      "cpu": ["x86_64"],
       "tarball": "https://fake-registry.com/a/pkg-2.1.5.tgz"
     },
     "@b/pkg@2.0.5": {
