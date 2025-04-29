@@ -82,8 +82,8 @@ struct LockfileNpmGraphPackage {
   cpu: Vec<SmallStackString>,
   tarball: Option<StackString>,
   deprecated: bool,
-  has_scripts: bool,
-  has_bin: bool,
+  scripts: bool,
+  bin: bool,
 }
 
 #[derive(Debug)]
@@ -182,8 +182,8 @@ impl LockfilePackageGraph {
           os: package.os.clone(),
           tarball: package.tarball.clone(),
           deprecated: package.deprecated,
-          has_scripts: package.has_scripts,
-          has_bin: package.has_bin,
+          scripts: package.scripts,
+          bin: package.bin,
           optional_peers: package
             .optional_peers
             .iter()
@@ -395,8 +395,8 @@ impl LockfilePackageGraph {
                 .map(|(name, id)| (name, id.0))
                 .collect(),
               deprecated: package.deprecated,
-              has_scripts: package.has_scripts,
-              has_bin: package.has_bin,
+              scripts: package.scripts,
+              bin: package.bin,
               optional_peers: package
                 .optional_peers
                 .into_iter()
