@@ -146,7 +146,7 @@
     }
   },
   "workspace": {
-    "patches": {
+    "links": {
       "npm:ts-morph@21.0.1": {
         "dependencies": [
           "npm:code-block-writer@12"
@@ -158,7 +158,7 @@
 
 # keep same (no change)
 {
-  "patches": {
+  "links": {
     "npm:ts-morph@21.0.1": {
       "dependencies": [
         "npm:code-block-writer@12"
@@ -315,7 +315,7 @@
     }
   },
   "workspace": {
-    "patches": {
+    "links": {
       "npm:ts-morph@21.0.1": {
         "dependencies": [
           "npm:code-block-writer@12"

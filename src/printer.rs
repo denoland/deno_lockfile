@@ -14,8 +14,8 @@ use serde::Serialize;
 
 use crate::JsrPackageInfo;
 use crate::LockfileContent;
+use crate::LockfileLinkContent;
 use crate::LockfilePackageJsonContent;
-use crate::LockfilePatchContent;
 use crate::NpmPackageInfo;
 use crate::WorkspaceConfigContent;
 use crate::WorkspaceMemberConfigContent;
@@ -127,12 +127,12 @@ struct SerializedWorkspaceConfigContent<'a> {
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  pub patches: BTreeMap<&'a str, SerializedLockfilePatchContent>,
+  pub links: BTreeMap<&'a str, SerializedLockfilePatchContent>,
 }
 
 impl SerializedWorkspaceConfigContent<'_> {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty() && self.members.is_empty() && self.patches.is_empty()
+    self.root.is_empty() && self.members.is_empty() && self.links.is_empty()
   }
 }
 
@@ -309,7 +309,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
   }
 
   fn handle_patch_content(
-    content: &LockfilePatchContent,
+    content: &LockfileLinkContent,
   ) -> SerializedLockfilePatchContent {
     SerializedLockfilePatchContent {
       dependencies: sort_deps(&content.dependencies),
@@ -343,8 +343,8 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
         .iter()
         .map(|(key, value)| (key.as_str(), handle_workspace_member(value)))
         .collect(),
-      patches: content
-        .patches
+      links: content
+        .links
         .iter()
         .map(|(key, value)| (key.as_str(), handle_patch_content(value)))
         .collect(),
