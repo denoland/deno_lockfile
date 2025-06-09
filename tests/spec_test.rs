@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use deno_lockfile::Lockfile;
 use deno_lockfile::Lockfile5NpmInfo;
-use deno_lockfile::LockfilePatchContent;
+use deno_lockfile::LockfileLinkContent;
 use deno_lockfile::NewLockfileOptions;
 use deno_lockfile::NpmPackageInfoProvider;
 use deno_lockfile::PackagesContent;
@@ -116,7 +116,7 @@ async fn config_changes_test(test: &CollectedTest) {
     members: BTreeMap<String, WorkspaceMemberConfigContent>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    patches: BTreeMap<String, PatchConfigContent>,
+    links: BTreeMap<String, PatchConfigContent>,
   }
 
   impl WorkspaceConfigContent {
@@ -148,13 +148,13 @@ async fn config_changes_test(test: &CollectedTest) {
             )
           })
           .collect(),
-        patches: self
-          .patches
+        links: self
+          .links
           .into_iter()
           .map(|(k, v)| {
             (
               k,
-              LockfilePatchContent {
+              LockfileLinkContent {
                 dependencies: v.dependencies.into_iter().collect(),
                 peer_dependencies: v.peer_dependencies.into_iter().collect(),
                 peer_dependencies_meta: v

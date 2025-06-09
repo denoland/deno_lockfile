@@ -53,7 +53,7 @@ pub struct SetWorkspaceConfigOptions {
 pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: HashMap<String, WorkspaceMemberConfig>,
-  pub patches: HashMap<String, LockfilePatchContent>,
+  pub links: HashMap<String, LockfileLinkContent>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -203,7 +203,7 @@ impl WorkspaceMemberConfigContent {
 
 #[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LockfilePatchContent {
+pub struct LockfileLinkContent {
   #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub dependencies: HashSet<JsrDepPackageReq>,
@@ -223,12 +223,12 @@ pub(crate) struct WorkspaceConfigContent {
   #[serde(default)]
   pub members: HashMap<String, WorkspaceMemberConfigContent>,
   #[serde(default)]
-  pub patches: HashMap<String, LockfilePatchContent>,
+  pub links: HashMap<String, LockfileLinkContent>,
 }
 
 impl WorkspaceConfigContent {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty() && self.members.is_empty() && self.patches.is_empty()
+    self.root.is_empty() && self.members.is_empty() && self.links.is_empty()
   }
 
   fn get_all_dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
@@ -704,11 +704,11 @@ impl Lockfile {
     let allow_content_changed =
       self.has_content_changed || !self.content.is_empty();
 
-    let has_any_patch_changed = options.config.patches.len()
-      != self.content.workspace.patches.len()
-      || !options.config.patches.is_empty()
-        && options.config.patches.iter().all(|(patch, new)| {
-          let Some(existing) = self.content.workspace.patches.get_mut(patch)
+    let has_any_patch_changed = options.config.links.len()
+      != self.content.workspace.links.len()
+      || !options.config.links.is_empty()
+        && options.config.links.iter().all(|(patch, new)| {
+          let Some(existing) = self.content.workspace.links.get_mut(patch)
           else {
             return true;
           };
@@ -729,12 +729,8 @@ impl Lockfile {
           deno_semver::package::PackageKind::Jsr => true,
           deno_semver::package::PackageKind::Npm => false,
         });
-      self.content.workspace.patches.clear();
-      self
-        .content
-        .workspace
-        .patches
-        .extend(options.config.patches);
+      self.content.workspace.links.clear();
+      self.content.workspace.links.extend(options.config.links);
     }
 
     let old_deps = self
