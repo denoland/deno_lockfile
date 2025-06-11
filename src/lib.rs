@@ -222,7 +222,8 @@ pub(crate) struct WorkspaceConfigContent {
   pub root: WorkspaceMemberConfigContent,
   #[serde(default)]
   pub members: HashMap<String, WorkspaceMemberConfigContent>,
-  #[serde(default)]
+  // todo(dsherret): patches is deprecated, remove in Deno 3.0
+  #[serde(default, alias = "patches")]
   pub links: HashMap<String, LockfileLinkContent>,
 }
 
