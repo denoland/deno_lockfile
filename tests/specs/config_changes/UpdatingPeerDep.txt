@@ -1,0 +1,77 @@
+# original
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@fresh/core@^2.0.0-alpha.29": "2.0.0-alpha.34",
+    "npm:@preact/signals@^2.0.4": "2.0.4_preact@10.26.6",
+    "npm:@preact/signals@^2.2.0": "2.2.0_preact@10.26.6",
+    "npm:preact-render-to-string@^6.5.11": "6.5.13_preact@10.26.6",
+    "npm:preact@^10.22.1": "10.26.6",
+    "npm:preact@^10.26.4": "10.26.6",
+    "npm:preact@^10.26.6": "10.26.6"
+  },
+  "jsr": {
+    "@fresh/core@2.0.0-alpha.34": {
+      "integrity": "e177fc69b049b04128de87d243bd7de76582417d80d8d12dc19dd6786f196efa",
+      "dependencies": [
+        "npm:@preact/signals@^2.0.4",
+        "npm:preact-render-to-string",
+        "npm:preact@^10.26.6"
+      ]
+    }
+  },
+  "npm": {
+    "@preact/signals@2.0.4_preact@10.26.6": {
+      "integrity": "sha512-9241aGnIv7y0IGzaq2vkBMe8/0jGnnmEEUeFmAoTWsaj8q/BW2PVekL8nHVJcy69bBww6rwEy3A1tc6yPE0sJA==",
+      "dependencies": [
+        "preact"
+      ]
+    },
+    "@preact/signals@2.2.0_preact@10.26.6": {
+      "integrity": "sha512-P3KPcEYyVk9Wiwfw68QQzRpPkt0H+zjfH3X4AaGCDlc86GuRBYFGiAxT1nC5F5qlsVIEmjNJ9yVYe7C91z3L+g==",
+      "dependencies": [
+        "preact"
+      ]
+    },
+    "preact-render-to-string@6.5.13_preact@10.26.6": {
+      "integrity": "sha512-iGPd+hKPMFKsfpR2vL4kJ6ZPcFIoWZEcBf0Dpm3zOpdVvj77aY8RlLiQji5OMrngEyaxGogeakTb54uS2FvA6w==",
+      "dependencies": [
+        "preact"
+      ]
+    },
+    "preact@10.26.6": {
+      "integrity": "sha512-5SRRBinwpwkaD+OqlBDeITlRgvd8I8QlxHJw9AxSdMNV6O+LodN9nUyYGpSF7sadHjs6RzeFShMexC6DbtWr9g=="
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@fresh/core@^2.0.0-alpha.29",
+      "npm:@preact/signals@^2.2.0",
+      "npm:preact-render-to-string@^6.5.11",
+      "npm:preact@^10.26.4"
+    ]
+  }
+}
+
+# update fresh
+{
+  "dependencies": [
+    "jsr:@fresh/core@^2.0.0-alpha.36",
+    "npm:@preact/signals@^2.2.0",
+    "npm:preact-render-to-string@^6.5.11",
+    "npm:preact@^10.26.4"
+  ]
+}
+
+# soemthing
+{
+  "version": "5",
+  "workspace": {
+    "dependencies": [
+      "jsr:@fresh/core@^2.0.0-alpha.36",
+      "npm:@preact/signals@^2.2.0",
+      "npm:preact-render-to-string@^6.5.11",
+      "npm:preact@^10.26.4"
+    ]
+  }
+}

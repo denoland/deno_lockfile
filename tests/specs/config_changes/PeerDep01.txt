@@ -1,6 +1,6 @@
 # original
 {
-  "version": "3",
+  "version": "5",
   "packages": {
     "specifiers": {
       "npm:preact-render-to-string@6.2": "npm:preact-render-to-string@6.2.2_preact@10.5.15",
