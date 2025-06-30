@@ -276,7 +276,11 @@ impl LockfilePackageGraph {
                 if let LockfilePkgId::Npm(id) = &id {
                   // be a bit aggressive and remove any npm packages that
                   // have this package as a peer dependency
-                  if id.parts().skip(1).any(|part| part == first_part) {
+                  if id
+                    .parts()
+                    .skip(1)
+                    .any(|part| part.replace("+", "/") == first_part)
+                  {
                     let has_visited = visited_root_packages.insert(req.clone());
                     if has_visited {
                       pending_reqs.push_back(req.clone());
