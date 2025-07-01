@@ -30,8 +30,7 @@ struct LockfileNpmPackageId(StackString);
 
 impl LockfileNpmPackageId {
   pub fn parts(&self) -> impl Iterator<Item = &str> {
-    let package_id = self.0.as_str();
-    package_id.split('_').filter(|s| !s.is_empty())
+    self.0.as_str().split('_').filter(|s| !s.is_empty())
   }
 }
 
@@ -268,25 +267,103 @@ impl LockfilePackageGraph {
       let mut visited_root_packages =
         HashSet::with_capacity(self.root_packages.len());
       visited_root_packages.extend(pending_reqs.iter().cloned());
+
+      let id_to_root_req = self
+        .root_packages
+        .iter()
+        .map(|(req, id)| (id, req))
+        .collect::<HashMap<_, _>>();
+
       while let Some(pending_req) = pending_reqs.pop_front() {
         if let Some(id) = self.root_packages.get(&pending_req) {
-          if let LockfilePkgId::Npm(id) = id {
-            if let Some(first_part) = id.parts().next() {
-              for (req, id) in &self.root_packages {
-                if let LockfilePkgId::Npm(id) = &id {
-                  // be a bit aggressive and remove any npm packages that
-                  // have this package as a peer dependency
-                  if id.parts().skip(1).any(|part| part == first_part) {
-                    let has_visited = visited_root_packages.insert(req.clone());
-                    if has_visited {
+          // add the root id to the removal queue
+          root_ids.push(id.clone());
+          if let Some(package) = self.packages.get(id) {
+            // collect dependencies of this package
+            let mut dependency_ids = HashSet::new();
+            match package {
+              LockfileGraphPackage::Jsr(pkg) => {
+                for dep_req in &pkg.dependencies {
+                  if let Some(dep_id) = self.root_packages.get(dep_req) {
+                    dependency_ids.insert(dep_id.clone());
+                  }
+                  if visited_root_packages.insert(dep_req.clone()) {
+                    pending_reqs.push_back(dep_req.clone());
+                  }
+                }
+              }
+              LockfileGraphPackage::Npm(pkg) => {
+                for dep_id in pkg.dependencies.values() {
+                  dependency_ids.insert(LockfilePkgId::Npm(dep_id.clone()));
+                  if let Some(&root_req) =
+                    id_to_root_req.get(&LockfilePkgId::Npm(dep_id.clone()))
+                  {
+                    if visited_root_packages.insert(root_req.clone()) {
+                      pending_reqs.push_back(root_req.clone());
+                    }
+                  }
+                }
+              }
+            }
+
+            // search for other root packages that share dependencies with this package
+            for (root_req, root_id) in &self.root_packages {
+              if visited_root_packages.contains(root_req) {
+                // already been handled
+                continue;
+              }
+
+              if let Some(root_package) = self.packages.get(root_id) {
+                let has_shared_dep = match root_package {
+                  LockfileGraphPackage::Jsr(pkg) => {
+                    pkg.dependencies.iter().any(|dep_req| {
+                      self
+                        .root_packages
+                        .get(dep_req)
+                        .map_or(false, |dep_id| dependency_ids.contains(dep_id))
+                    })
+                  }
+                  LockfileGraphPackage::Npm(pkg) => {
+                    pkg.dependencies.values().any(|dep_id| {
+                      dependency_ids
+                        .contains(&LockfilePkgId::Npm(dep_id.clone()))
+                    })
+                  }
+                };
+
+                if has_shared_dep
+                  && visited_root_packages.insert(root_req.clone())
+                {
+                  pending_reqs.push_back(root_req.clone());
+                }
+              }
+            }
+          }
+
+          // search for other root packages that have a peer dependency on this root package
+          match id {
+            LockfilePkgId::Npm(id) => {
+              if let Some(first_part) = id.parts().next() {
+                // when we encode package ids with peer dependencies, we replace / with +.
+                // we'll be searching for the peer dependency id in the other root packages,
+                // so we need to do the same replacement
+                let first_part_peer_dep_id = first_part.replace("/", "+");
+                for (req, id) in &self.root_packages {
+                  if let LockfilePkgId::Npm(id) = &id {
+                    if id
+                      .parts()
+                      .skip(1)
+                      .any(|part| part == first_part_peer_dep_id)
+                      && visited_root_packages.insert(req.clone())
+                    {
                       pending_reqs.push_back(req.clone());
                     }
                   }
                 }
               }
             }
+            LockfilePkgId::Jsr(_) => {}
           }
-          root_ids.push(id.clone());
         }
       }
     }

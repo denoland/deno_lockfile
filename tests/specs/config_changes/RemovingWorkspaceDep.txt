@@ -173,73 +173,10 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@dsherret/dax@*": "0.0.1",
-    "jsr:@dsherret/which@0.0.1": "0.0.1",
-    "jsr:@std/assert@0.210": "0.210.0",
-    "jsr:@std/bytes@0.210": "0.210.0",
-    "jsr:@std/fmt@0.210.0": "0.210.0",
-    "jsr:@std/fs@0.210.0": "0.210.0",
-    "jsr:@std/io@0.210": "0.210.0",
-    "jsr:@std/io@0.210.0": "0.210.0",
-    "jsr:@std/path@0.210": "0.210.0",
-    "jsr:@std/path@0.210.0": "0.210.0",
-    "jsr:@std/streams@0.210": "0.210.0",
-    "jsr:@std/streams@0.210.0": "0.210.0",
     "jsr:@zome_unreferenced/package@*": "0.1.0",
     "jsr:@zome_unreferenced/package_b@*": "0.1.0"
   },
   "jsr": {
-    "@dsherret/dax@0.0.1": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-      "dependencies": [
-        "jsr:@dsherret/which",
-        "jsr:@std/fmt",
-        "jsr:@std/fs",
-        "jsr:@std/io@0.210.0",
-        "jsr:@std/path@0.210.0",
-        "jsr:@std/streams@0.210.0"
-      ]
-    },
-    "@dsherret/which@0.0.1": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-    },
-    "@std/assert@0.210.0": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-    },
-    "@std/bytes@0.210.0": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-    },
-    "@std/fmt@0.210.0": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045"
-    },
-    "@std/fs@0.210.0": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-      "dependencies": [
-        "jsr:@std/assert",
-        "jsr:@std/path@0.210"
-      ]
-    },
-    "@std/io@0.210.0": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-      "dependencies": [
-        "jsr:@std/assert",
-        "jsr:@std/bytes"
-      ]
-    },
-    "@std/path@0.210.0": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-      "dependencies": [
-        "jsr:@std/assert"
-      ]
-    },
-    "@std/streams@0.210.0": {
-      "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
-      "dependencies": [
-        "jsr:@std/assert",
-        "jsr:@std/bytes",
-        "jsr:@std/io@0.210"
-      ]
-    },
     "@zome_unreferenced/package@0.1.0": {
       "integrity": "09154a97e18c4d6a1692e3b3c8a3b1ec2934f00b7c1caf7491d762d963ada045",
       "dependencies": [

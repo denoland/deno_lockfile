@@ -1542,6 +1542,63 @@ mod tests {
     assert!(!lockfile.has_content_changed);
   }
 
+  fn dep_req(s: &str) -> JsrDepPackageReq {
+    JsrDepPackageReq::from_str(s).unwrap()
+  }
+
+  #[test]
+  fn update_dep_invalidate_peer_deps() {
+    let content: &str = r#"{
+  "version": "5",
+  "specifiers": {
+    "npm:@testing/main-dep@1.0.0": "1.0.0_@testing+peer-dep@1.0.0",
+    "npm:@testing/peer-dep@1.0.0": "1.0.0"
+  },
+  "npm": {
+    "@testing/main-dep@1.0.0_@testing+peer-dep@1.0.0": {
+      "dependencies": [
+        "@testing/peer-dep"
+      ]
+    },
+    "@testing/peer-dep@1.0.0": {
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "npm:@testing/main-dep@1.0.0",
+      "npm:@testing/peer-dep@1.0.0"
+    ]
+  }
+}"#;
+
+    let file_path = PathBuf::from("lockfile.json");
+    let mut lockfile = new_lockfile(NewLockfileOptions {
+      file_path,
+      content,
+      overwrite: false,
+    })
+    .unwrap();
+    /* eprintln!("lockfile: {}", dbg_pls::color(&lockfile)) */
+    lockfile.set_workspace_config(SetWorkspaceConfigOptions {
+      config: WorkspaceConfig {
+        root: WorkspaceMemberConfig {
+          dependencies: [
+            dep_req("npm:@testing/main-dep@1.0.0"),
+            dep_req("npm:@testing/peer-dep@1.0.5"),
+          ]
+          .into_iter()
+          .collect(),
+          package_json_deps: Default::default(),
+        },
+        ..Default::default()
+      },
+      no_config: false,
+      no_npm: false,
+    });
+
+    assert_eq!(lockfile.content.packages.specifiers.len(), 0);
+  }
+
   #[test]
   fn empty_lockfile_nicer_error() {
     let content: &str = r#"  "#;
