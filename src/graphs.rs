@@ -30,40 +30,6 @@ struct LockfileNpmPackageId(StackString);
 
 impl LockfileNpmPackageId {
   pub fn parts(&self) -> impl Iterator<Item = &str> {
-    // let package_id = self.0.as_str();
-
-    // enum State {
-    //   Begin,
-    //   FirstPart(usize),
-    //   BetweenParts(usize,)
-
-    // }
-
-    // let bytes = package_id.as_bytes();
-    // let mut i = 0;
-    // let mut state =
-    // std::iter::from_fn(move || {
-    //   if i >= bytes.len() {
-    //     return None;
-    //   }
-
-    //   let mut underscore_count = 0;
-    //   let start = i;
-    //   while i < bytes.len() {
-    //     if bytes[i] == b'_' {
-    //       underscore_count += 1;
-    //     } else {
-    //       let count = underscore_count;
-    //       underscore_count = 0;
-    //       if count == 1 {
-    //         i += 1;
-    //         return Some(&package_id[start..i]);
-    //       }
-    //     }
-    //     i += 1;
-    //   }
-    //   None
-    // })
     self.0.as_str().split('_').filter(|s| !s.is_empty())
   }
 }
