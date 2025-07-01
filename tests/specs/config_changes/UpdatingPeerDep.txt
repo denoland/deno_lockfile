@@ -8,7 +8,8 @@
     "npm:preact-render-to-string@^6.5.11": "6.5.13_preact@10.26.6",
     "npm:preact@^10.22.1": "10.26.6",
     "npm:preact@^10.26.4": "10.26.6",
-    "npm:preact@^10.26.6": "10.26.6"
+    "npm:preact@^10.26.6": "10.26.6",
+    "npm:unrelated@^1.0.0": "1.0.0"
   },
   "jsr": {
     "@fresh/core@2.0.0-alpha.34": {
@@ -41,6 +42,9 @@
     },
     "preact@10.26.6": {
       "integrity": "sha512-5SRRBinwpwkaD+OqlBDeITlRgvd8I8QlxHJw9AxSdMNV6O+LodN9nUyYGpSF7sadHjs6RzeFShMexC6DbtWr9g=="
+    },
+    "unrelated@1.0.0": {
+      "integrity": "sha512-5SRRBinwpwkaE+OqlBDeITlRgvd8I8QlxHJw9AxSdMNV6O+LodN9nUyYGpSF7sadHjs6RzeFShMexC6DbtWr9g=="
     }
   },
   "workspace": {
@@ -48,7 +52,8 @@
       "jsr:@fresh/core@^2.0.0-alpha.29",
       "npm:@preact/signals@^2.2.0",
       "npm:preact-render-to-string@^6.5.11",
-      "npm:preact@^10.26.4"
+      "npm:preact@^10.26.4",
+      "npm:unrelated@^1.0.0"
     ]
   }
 }
@@ -59,19 +64,29 @@
     "jsr:@fresh/core@^2.0.0-alpha.36",
     "npm:@preact/signals@^2.2.0",
     "npm:preact-render-to-string@^6.5.11",
-    "npm:preact@^10.26.4"
+    "npm:preact@^10.26.4",
+    "npm:unrelated@^1.0.0"
   ]
 }
 
-# soemthing
+# remove all but unrelated, as they might need re-resolution due to shared dependencies
 {
   "version": "5",
+  "specifiers": {
+    "npm:unrelated@1": "1.0.0"
+  },
+  "npm": {
+    "unrelated@1.0.0": {
+      "integrity": "sha512-5SRRBinwpwkaE+OqlBDeITlRgvd8I8QlxHJw9AxSdMNV6O+LodN9nUyYGpSF7sadHjs6RzeFShMexC6DbtWr9g=="
+    }
+  },
   "workspace": {
     "dependencies": [
       "jsr:@fresh/core@^2.0.0-alpha.36",
       "npm:@preact/signals@^2.2.0",
       "npm:preact-render-to-string@^6.5.11",
-      "npm:preact@^10.26.4"
+      "npm:preact@^10.26.4",
+      "npm:unrelated@1"
     ]
   }
 }
