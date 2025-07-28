@@ -224,7 +224,7 @@ impl LockfilePackageGraph {
           LockfileGraphPackage::Npm(pkg) => pkg
             .all_dependency_ids()
             .cloned()
-            .map(|id| LockfilePkgId::Npm(id))
+            .map(LockfilePkgId::Npm)
             .collect::<Vec<_>>(),
         };
 
