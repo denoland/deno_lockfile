@@ -63,19 +63,6 @@ enum LockfileGraphPackage {
   Npm(LockfileNpmGraphPackage),
 }
 
-impl LockfileGraphPackage {
-  pub fn add_dependent(&mut self, id: LockfilePkgId) {
-    match self {
-      LockfileGraphPackage::Jsr(pkg) => {
-        pkg.dependents.insert(id);
-      }
-      LockfileGraphPackage::Npm(pkg) => {
-        pkg.dependents.insert(id);
-      }
-    }
-  }
-}
-
 #[derive(Debug)]
 struct LockfileNpmGraphPackage {
   dependents: HashSet<LockfilePkgId>,
@@ -229,7 +216,14 @@ impl LockfilePackageGraph {
 
         for dep_id in dependency_ids {
           if let Some(pkg) = packages.get_mut(&dep_id) {
-            pkg.add_dependent(pkg_id.clone());
+            match pkg {
+              LockfileGraphPackage::Jsr(pkg) => {
+                pkg.dependents.insert(pkg_id.clone());
+              }
+              LockfileGraphPackage::Npm(pkg) => {
+                pkg.dependents.insert(pkg_id.clone());
+              }
+            }
           }
         }
       }

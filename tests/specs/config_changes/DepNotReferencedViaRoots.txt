@@ -852,7 +852,7 @@
   ]
 }
 
-# will be ok
+# will remove @vitejs/plugin-react@4.7.0_vite@6.3.5__picomatch@4.0.3_@babel+core@7.28.0
 {
   "version": "5",
   "specifiers": {
