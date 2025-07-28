@@ -734,12 +734,6 @@ impl Lockfile {
       self.content.workspace.links.extend(options.config.links);
     }
 
-    let old_deps = self
-      .content
-      .workspace
-      .get_all_dep_reqs()
-      .cloned()
-      .collect::<HashSet<_>>();
     let mut removed_deps = HashSet::new();
 
     // set the root
@@ -791,11 +785,7 @@ impl Lockfile {
       let remotes = std::mem::take(&mut self.content.remote);
 
       // create the graph
-      let mut graph = LockfilePackageGraph::from_lockfile(
-        packages,
-        remotes,
-        old_deps.into_iter(),
-      );
+      let mut graph = LockfilePackageGraph::from_lockfile(packages, remotes);
 
       // remove the packages
       graph.remove_root_packages(removed_deps.into_iter());
