@@ -69,10 +69,18 @@ enum LockfileGraphPackage {
   Npm(LockfileNpmGraphPackage),
 }
 
+impl LockfileGraphPackage {
+  pub fn inc_reference_count(&mut self) {
+    match self {
+      LockfileGraphPackage::Jsr(pkg) => pkg.reference_count += 1,
+      LockfileGraphPackage::Npm(pkg) => pkg.reference_count += 1,
+    }
+  }
+}
+
 #[derive(Debug)]
 struct LockfileNpmGraphPackage {
-  /// Root ids that transitively reference this package.
-  root_ids: HashSet<LockfilePkgId>,
+  reference_count: usize,
   integrity: Option<String>,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
@@ -85,10 +93,21 @@ struct LockfileNpmGraphPackage {
   bin: bool,
 }
 
+impl LockfileNpmGraphPackage {
+  pub fn all_dependency_ids(
+    &self,
+  ) -> impl Iterator<Item = &LockfileNpmPackageId> {
+    self
+      .dependencies
+      .values()
+      .chain(self.optional_dependencies.values())
+      .chain(self.optional_peers.values())
+  }
+}
+
 #[derive(Debug)]
 struct LockfileJsrGraphPackage {
-  /// Root ids that transitively reference this package.
-  root_ids: HashSet<LockfilePkgId>,
+  reference_count: usize,
   integrity: String,
   dependencies: BTreeSet<LockfilePkgReq>,
 }
@@ -146,7 +165,7 @@ impl LockfilePackageGraph {
       packages.insert(
         LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())),
         LockfileGraphPackage::Jsr(LockfileJsrGraphPackage {
-          root_ids: Default::default(),
+          reference_count: 0,
           integrity: content_package.integrity.clone(),
           dependencies: content_package
             .dependencies
@@ -161,7 +180,7 @@ impl LockfilePackageGraph {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
-          root_ids: Default::default(),
+          reference_count: 0,
           integrity: package.integrity.clone(),
           dependencies: package
             .dependencies
@@ -194,55 +213,34 @@ impl LockfilePackageGraph {
       );
     }
 
-    let mut root_ids = old_config_file_packages
-      .filter_map(|value| {
-        root_packages
-          .get(&match value.kind {
-            deno_semver::package::PackageKind::Jsr => {
-              LockfilePkgReq::Jsr(value.req)
-            }
-            deno_semver::package::PackageKind::Npm => {
-              LockfilePkgReq::Npm(value.req)
-            }
-          })
-          .cloned()
-      })
-      .collect::<Vec<_>>();
-    let mut unseen_root_pkg_ids =
-      root_packages.values().collect::<HashSet<_>>();
+    for (_, id) in &root_packages {
+      if let Some(pkg) = packages.get_mut(id) {
+        pkg.inc_reference_count();
+      }
+    }
 
-    // trace every root identifier through the graph finding all corresponding packages
-    while let Some(root_id) = root_ids.pop() {
-      let mut pending = VecDeque::with_capacity(package_count);
-      pending.push_back(root_id.clone());
-      while let Some(id) = pending.pop_back() {
-        unseen_root_pkg_ids.remove(&id);
-        if let Some(package) = packages.get_mut(&id) {
-          match package {
-            LockfileGraphPackage::Jsr(package) => {
-              if package.root_ids.insert(root_id.clone()) {
-                for req in &package.dependencies {
-                  if let Some(nv) = root_packages.get(req) {
-                    pending.push_back(nv.clone());
-                  }
-                }
-              }
-            }
-            LockfileGraphPackage::Npm(package) => {
-              if package.root_ids.insert(root_id.clone()) {
-                for dep_id in package.dependencies.values() {
-                  pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
-                }
-              }
-            }
+    let pkg_ids = packages.keys().cloned().collect::<Vec<_>>();
+    for pkg_id in pkg_ids {
+      if let Some(pkg) = packages.get(&pkg_id) {
+        let dependency_ids = match pkg {
+          LockfileGraphPackage::Jsr(pkg) => pkg
+            .dependencies
+            .iter()
+            .filter_map(|req| root_packages.get(req))
+            .cloned()
+            .collect::<Vec<_>>(),
+          LockfileGraphPackage::Npm(pkg) => pkg
+            .all_dependency_ids()
+            .cloned()
+            .map(|id| LockfilePkgId::Npm(id))
+            .collect::<Vec<_>>(),
+        };
+
+        for dep_id in dependency_ids {
+          if let Some(pkg) = packages.get_mut(&dep_id) {
+            pkg.inc_reference_count();
           }
         }
-      }
-
-      if root_ids.is_empty() {
-        // Certain root package specifiers might not be referenced or transitively
-        // referenced in the config file. For those cases, keep them in the config file.
-        root_ids.extend(unseen_root_pkg_ids.drain().cloned());
       }
     }
 
@@ -371,31 +369,36 @@ impl LockfilePackageGraph {
     // Go through the graph and mark the packages that no
     // longer use this root id. If the package goes to having
     // no root ids, then remove it from the graph.
+    let mut seen_pkgs = HashSet::with_capacity(self.packages.len());
     while let Some(root_id) = root_ids.pop() {
+      seen_pkgs.clear();
       let mut pending = VecDeque::from([root_id.clone()]);
       while let Some(id) = pending.pop_back() {
         if let Some(package) = self.packages.get_mut(&id) {
           match package {
             LockfileGraphPackage::Jsr(package) => {
-              if package.root_ids.remove(&root_id) {
-                for req in &package.dependencies {
-                  if let Some(id) = self.root_packages.get(req) {
+              package.reference_count -= 1;
+              for req in &package.dependencies {
+                if let Some(id) = self.root_packages.get(req) {
+                  if seen_pkgs.insert(id.clone()) {
                     pending.push_back(id.clone());
                   }
                 }
-                if package.root_ids.is_empty() {
-                  self.remove_package(id);
-                }
+              }
+              if package.reference_count == 0 {
+                self.remove_package(&id);
               }
             }
             LockfileGraphPackage::Npm(package) => {
-              if package.root_ids.remove(&root_id) {
-                for dep_id in package.dependencies.values() {
-                  pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
+              package.reference_count -= 1;
+              for dep_id in package.dependencies.values() {
+                let id = LockfilePkgId::Npm(dep_id.clone());
+                if seen_pkgs.insert(id.clone()) {
+                  pending.push_back(id);
                 }
-                if package.root_ids.is_empty() {
-                  self.remove_package(id);
-                }
+              }
+              if package.reference_count == 0 {
+                self.remove_package(&id);
               }
             }
           }
@@ -404,9 +407,9 @@ impl LockfilePackageGraph {
     }
   }
 
-  fn remove_package(&mut self, id: LockfilePkgId) {
-    self.packages.remove(&id);
-    self.root_packages.retain(|_, pkg_id| *pkg_id != id);
+  fn remove_package(&mut self, id: &LockfilePkgId) {
+    self.packages.remove(id);
+    self.root_packages.retain(|_, pkg_id| pkg_id != id);
   }
 
   pub fn populate_packages(
