@@ -67,10 +67,10 @@ impl LockfileGraphPackage {
   pub fn add_dependent(&mut self, id: LockfilePkgId) {
     match self {
       LockfileGraphPackage::Jsr(pkg) => {
-        pkg.dependenents.insert(id);
+        pkg.dependents.insert(id);
       }
       LockfileGraphPackage::Npm(pkg) => {
-        pkg.dependenents.insert(id);
+        pkg.dependents.insert(id);
       }
     }
   }
@@ -78,7 +78,7 @@ impl LockfileGraphPackage {
 
 #[derive(Debug)]
 struct LockfileNpmGraphPackage {
-  dependenents: HashSet<LockfilePkgId>,
+  dependents: HashSet<LockfilePkgId>,
   integrity: Option<String>,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
@@ -105,7 +105,7 @@ impl LockfileNpmGraphPackage {
 
 #[derive(Debug)]
 struct LockfileJsrGraphPackage {
-  dependenents: HashSet<LockfilePkgId>,
+  dependents: HashSet<LockfilePkgId>,
   integrity: String,
   dependencies: BTreeSet<LockfilePkgReq>,
 }
@@ -162,7 +162,7 @@ impl LockfilePackageGraph {
       packages.insert(
         LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())),
         LockfileGraphPackage::Jsr(LockfileJsrGraphPackage {
-          dependenents: HashSet::new(),
+          dependents: HashSet::new(),
           integrity: content_package.integrity.clone(),
           dependencies: content_package
             .dependencies
@@ -177,7 +177,7 @@ impl LockfilePackageGraph {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
-          dependenents: HashSet::new(),
+          dependents: HashSet::new(),
           integrity: package.integrity.clone(),
           dependencies: package
             .dependencies
@@ -264,7 +264,7 @@ impl LockfilePackageGraph {
               .filter_map(|req| self.root_packages.get(req))
               .cloned(),
           );
-          pending_ids.extend(pkg.dependenents.drain());
+          pending_ids.extend(pkg.dependents.drain());
         }
         LockfileGraphPackage::Npm(pkg) => {
           pending_ids.extend(
@@ -272,7 +272,7 @@ impl LockfilePackageGraph {
               .all_dependency_ids()
               .map(|dep_id| LockfilePkgId::Npm(dep_id.clone())),
           );
-          pending_ids.extend(pkg.dependenents.drain());
+          pending_ids.extend(pkg.dependents.drain());
         }
       }
       self.remove_package(&pkg_id);
