@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-use std::hash::Hash;
 
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
