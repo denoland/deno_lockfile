@@ -395,8 +395,8 @@ fn verify_packages_content(packages: &PackagesContent) {
       assert!(
         packages.npm.contains_key(dep_id),
         "Missing '{}' dep in '{}'",
-        pkg_id,
         dep_id,
+        pkg_id,
       );
     }
   }
