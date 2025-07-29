@@ -28,12 +28,6 @@ struct LockfileJsrPkgNv(PackageNv);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct LockfileNpmPackageId(StackString);
 
-impl LockfileNpmPackageId {
-  pub fn parts(&self) -> impl Iterator<Item = &str> {
-    self.0.as_str().split('_').filter(|s| !s.is_empty())
-  }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum LockfilePkgReq {
   Jsr(PackageReq),
@@ -71,8 +65,7 @@ enum LockfileGraphPackage {
 
 #[derive(Debug)]
 struct LockfileNpmGraphPackage {
-  /// Root ids that transitively reference this package.
-  root_ids: HashSet<LockfilePkgId>,
+  dependents: HashSet<LockfilePkgId>,
   integrity: Option<String>,
   dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
   optional_dependencies: BTreeMap<StackString, LockfileNpmPackageId>,
@@ -85,10 +78,21 @@ struct LockfileNpmGraphPackage {
   bin: bool,
 }
 
+impl LockfileNpmGraphPackage {
+  pub fn all_dependency_ids(
+    &self,
+  ) -> impl Iterator<Item = &LockfileNpmPackageId> {
+    self
+      .dependencies
+      .values()
+      .chain(self.optional_dependencies.values())
+      .chain(self.optional_peers.values())
+  }
+}
+
 #[derive(Debug)]
 struct LockfileJsrGraphPackage {
-  /// Root ids that transitively reference this package.
-  root_ids: HashSet<LockfilePkgId>,
+  dependents: HashSet<LockfilePkgId>,
   integrity: String,
   dependencies: BTreeSet<LockfilePkgReq>,
 }
@@ -105,7 +109,6 @@ impl LockfilePackageGraph {
   pub fn from_lockfile(
     content: PackagesContent,
     remotes: BTreeMap<String, String>,
-    old_config_file_packages: impl Iterator<Item = JsrDepPackageReq>,
   ) -> Self {
     let mut root_packages =
       HashMap::<LockfilePkgReq, LockfilePkgId>::with_capacity(
@@ -146,7 +149,7 @@ impl LockfilePackageGraph {
       packages.insert(
         LockfilePkgId::Jsr(LockfileJsrPkgNv(nv.clone())),
         LockfileGraphPackage::Jsr(LockfileJsrGraphPackage {
-          root_ids: Default::default(),
+          dependents: HashSet::new(),
           integrity: content_package.integrity.clone(),
           dependencies: content_package
             .dependencies
@@ -161,7 +164,7 @@ impl LockfilePackageGraph {
       packages.insert(
         LockfilePkgId::Npm(LockfileNpmPackageId(id.clone())),
         LockfileGraphPackage::Npm(LockfileNpmGraphPackage {
-          root_ids: Default::default(),
+          dependents: HashSet::new(),
           integrity: package.integrity.clone(),
           dependencies: package
             .dependencies
@@ -194,55 +197,35 @@ impl LockfilePackageGraph {
       );
     }
 
-    let mut root_ids = old_config_file_packages
-      .filter_map(|value| {
-        root_packages
-          .get(&match value.kind {
-            deno_semver::package::PackageKind::Jsr => {
-              LockfilePkgReq::Jsr(value.req)
-            }
-            deno_semver::package::PackageKind::Npm => {
-              LockfilePkgReq::Npm(value.req)
-            }
-          })
-          .cloned()
-      })
-      .collect::<Vec<_>>();
-    let mut unseen_root_pkg_ids =
-      root_packages.values().collect::<HashSet<_>>();
+    let pkg_ids = packages.keys().cloned().collect::<Vec<_>>();
+    for pkg_id in pkg_ids {
+      if let Some(pkg) = packages.get(&pkg_id) {
+        let dependency_ids = match pkg {
+          LockfileGraphPackage::Jsr(pkg) => pkg
+            .dependencies
+            .iter()
+            .filter_map(|req| root_packages.get(req))
+            .cloned()
+            .collect::<Vec<_>>(),
+          LockfileGraphPackage::Npm(pkg) => pkg
+            .all_dependency_ids()
+            .cloned()
+            .map(LockfilePkgId::Npm)
+            .collect::<Vec<_>>(),
+        };
 
-    // trace every root identifier through the graph finding all corresponding packages
-    while let Some(root_id) = root_ids.pop() {
-      let mut pending = VecDeque::with_capacity(package_count);
-      pending.push_back(root_id.clone());
-      while let Some(id) = pending.pop_back() {
-        unseen_root_pkg_ids.remove(&id);
-        if let Some(package) = packages.get_mut(&id) {
-          match package {
-            LockfileGraphPackage::Jsr(package) => {
-              if package.root_ids.insert(root_id.clone()) {
-                for req in &package.dependencies {
-                  if let Some(nv) = root_packages.get(req) {
-                    pending.push_back(nv.clone());
-                  }
-                }
+        for dep_id in dependency_ids {
+          if let Some(pkg) = packages.get_mut(&dep_id) {
+            match pkg {
+              LockfileGraphPackage::Jsr(pkg) => {
+                pkg.dependents.insert(pkg_id.clone());
               }
-            }
-            LockfileGraphPackage::Npm(package) => {
-              if package.root_ids.insert(root_id.clone()) {
-                for dep_id in package.dependencies.values() {
-                  pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
-                }
+              LockfileGraphPackage::Npm(pkg) => {
+                pkg.dependents.insert(pkg_id.clone());
               }
             }
           }
         }
-      }
-
-      if root_ids.is_empty() {
-        // Certain root package specifiers might not be referenced or transitively
-        // referenced in the config file. For those cases, keep them in the config file.
-        root_ids.extend(unseen_root_pkg_ids.drain().cloned());
       }
     }
 
@@ -257,156 +240,42 @@ impl LockfilePackageGraph {
     &mut self,
     package_reqs: impl Iterator<Item = JsrDepPackageReq>,
   ) {
-    let mut root_ids = Vec::new();
+    let mut pending_ids = package_reqs
+      .map(LockfilePkgReq::from_jsr_dep)
+      .filter_map(|id| self.root_packages.get(&id).cloned())
+      .collect::<VecDeque<_>>();
 
-    // collect the root ids being removed
-    {
-      let mut pending_reqs = package_reqs
-        .map(LockfilePkgReq::from_jsr_dep)
-        .collect::<VecDeque<_>>();
-      let mut visited_root_packages =
-        HashSet::with_capacity(self.root_packages.len());
-      visited_root_packages.extend(pending_reqs.iter().cloned());
-
-      let id_to_root_req = self
-        .root_packages
-        .iter()
-        .map(|(req, id)| (id, req))
-        .collect::<HashMap<_, _>>();
-
-      while let Some(pending_req) = pending_reqs.pop_front() {
-        if let Some(id) = self.root_packages.get(&pending_req) {
-          // add the root id to the removal queue
-          root_ids.push(id.clone());
-          if let Some(package) = self.packages.get(id) {
-            // collect dependencies of this package
-            let mut dependency_ids = HashSet::new();
-            match package {
-              LockfileGraphPackage::Jsr(pkg) => {
-                for dep_req in &pkg.dependencies {
-                  if let Some(dep_id) = self.root_packages.get(dep_req) {
-                    dependency_ids.insert(dep_id.clone());
-                  }
-                  if visited_root_packages.insert(dep_req.clone()) {
-                    pending_reqs.push_back(dep_req.clone());
-                  }
-                }
-              }
-              LockfileGraphPackage::Npm(pkg) => {
-                for dep_id in pkg.dependencies.values() {
-                  dependency_ids.insert(LockfilePkgId::Npm(dep_id.clone()));
-                  if let Some(&root_req) =
-                    id_to_root_req.get(&LockfilePkgId::Npm(dep_id.clone()))
-                  {
-                    if visited_root_packages.insert(root_req.clone()) {
-                      pending_reqs.push_back(root_req.clone());
-                    }
-                  }
-                }
-              }
-            }
-
-            // search for other root packages that share dependencies with this package
-            for (root_req, root_id) in &self.root_packages {
-              if visited_root_packages.contains(root_req) {
-                // already been handled
-                continue;
-              }
-
-              if let Some(root_package) = self.packages.get(root_id) {
-                let has_shared_dep = match root_package {
-                  LockfileGraphPackage::Jsr(pkg) => {
-                    pkg.dependencies.iter().any(|dep_req| {
-                      self
-                        .root_packages
-                        .get(dep_req)
-                        .map_or(false, |dep_id| dependency_ids.contains(dep_id))
-                    })
-                  }
-                  LockfileGraphPackage::Npm(pkg) => {
-                    pkg.dependencies.values().any(|dep_id| {
-                      dependency_ids
-                        .contains(&LockfilePkgId::Npm(dep_id.clone()))
-                    })
-                  }
-                };
-
-                if has_shared_dep
-                  && visited_root_packages.insert(root_req.clone())
-                {
-                  pending_reqs.push_back(root_req.clone());
-                }
-              }
-            }
-          }
-
-          // search for other root packages that have a peer dependency on this root package
-          match id {
-            LockfilePkgId::Npm(id) => {
-              if let Some(first_part) = id.parts().next() {
-                // when we encode package ids with peer dependencies, we replace / with +.
-                // we'll be searching for the peer dependency id in the other root packages,
-                // so we need to do the same replacement
-                let first_part_peer_dep_id = first_part.replace("/", "+");
-                for (req, id) in &self.root_packages {
-                  if let LockfilePkgId::Npm(id) = &id {
-                    if id
-                      .parts()
-                      .skip(1)
-                      .any(|part| part == first_part_peer_dep_id)
-                      && visited_root_packages.insert(req.clone())
-                    {
-                      pending_reqs.push_back(req.clone());
-                    }
-                  }
-                }
-              }
-            }
-            LockfilePkgId::Jsr(_) => {}
-          }
+    while let Some(pkg_id) = pending_ids.pop_front() {
+      let Some(pkg) = self.packages.get_mut(&pkg_id) else {
+        continue;
+      };
+      match pkg {
+        LockfileGraphPackage::Jsr(pkg) => {
+          pending_ids.extend(
+            pkg
+              .dependencies
+              .iter()
+              .filter_map(|req| self.root_packages.get(req))
+              .cloned(),
+          );
+          pending_ids.extend(pkg.dependents.drain());
+        }
+        LockfileGraphPackage::Npm(pkg) => {
+          pending_ids.extend(
+            pkg
+              .all_dependency_ids()
+              .map(|dep_id| LockfilePkgId::Npm(dep_id.clone())),
+          );
+          pending_ids.extend(pkg.dependents.drain());
         }
       }
-    }
-
-    // Go through the graph and mark the packages that no
-    // longer use this root id. If the package goes to having
-    // no root ids, then remove it from the graph.
-    while let Some(root_id) = root_ids.pop() {
-      let mut pending = VecDeque::from([root_id.clone()]);
-      while let Some(id) = pending.pop_back() {
-        if let Some(package) = self.packages.get_mut(&id) {
-          match package {
-            LockfileGraphPackage::Jsr(package) => {
-              if package.root_ids.remove(&root_id) {
-                for req in &package.dependencies {
-                  if let Some(id) = self.root_packages.get(req) {
-                    pending.push_back(id.clone());
-                  }
-                }
-                if package.root_ids.is_empty() {
-                  self.remove_package(id);
-                }
-              }
-            }
-            LockfileGraphPackage::Npm(package) => {
-              if package.root_ids.remove(&root_id) {
-                for dep_id in package.dependencies.values() {
-                  pending.push_back(LockfilePkgId::Npm(dep_id.clone()));
-                }
-                if package.root_ids.is_empty() {
-                  self.remove_package(id);
-                }
-              }
-            }
-          }
-        }
-      }
+      self.remove_package(&pkg_id);
     }
   }
 
-  fn remove_package(&mut self, id: LockfilePkgId) {
-    self.packages.remove(&id);
-    self.root_packages.retain(|_, pkg_id| *pkg_id != id);
+  fn remove_package(&mut self, id: &LockfilePkgId) {
+    self.packages.remove(id);
+    self.root_packages.retain(|_, pkg_id| pkg_id != id);
   }
 
   pub fn populate_packages(
