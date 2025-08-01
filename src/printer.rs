@@ -86,7 +86,7 @@ impl SerializedLockfilePackageJsonContent {
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SerializedLockfilePatchContent {
+struct SerializedLockfileLinkContent {
   #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub dependencies: Vec<SerializedJsrDepPackageReq>,
@@ -127,7 +127,7 @@ struct SerializedWorkspaceConfigContent<'a> {
   pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  pub links: BTreeMap<&'a str, SerializedLockfilePatchContent>,
+  pub links: BTreeMap<&'a str, SerializedLockfileLinkContent>,
 }
 
 impl SerializedWorkspaceConfigContent<'_> {
@@ -310,8 +310,8 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
 
   fn handle_patch_content(
     content: &LockfileLinkContent,
-  ) -> SerializedLockfilePatchContent {
-    SerializedLockfilePatchContent {
+  ) -> SerializedLockfileLinkContent {
+    SerializedLockfileLinkContent {
       dependencies: sort_deps(&content.dependencies),
       peer_dependencies: sort_deps(&content.peer_dependencies),
       peer_dependencies_meta: content
