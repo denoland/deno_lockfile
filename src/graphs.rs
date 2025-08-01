@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 
 use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageKind;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
 use deno_semver::SmallStackString;
@@ -53,6 +53,13 @@ impl LockfilePkgReq {
     match self {
       LockfilePkgReq::Jsr(req) => req,
       LockfilePkgReq::Npm(req) => req,
+    }
+  }
+
+  pub fn kind(&self) -> PackageKind {
+    match self {
+      LockfilePkgReq::Jsr(_) => PackageKind::Jsr,
+      LockfilePkgReq::Npm(_) => PackageKind::Npm,
     }
   }
 }
@@ -236,16 +243,36 @@ impl LockfilePackageGraph {
     }
   }
 
+  pub fn remove_links(
+    &mut self,
+    package_reqs: impl Iterator<Item = JsrDepPackageReq>,
+  ) {
+    let mut pending_ids = Vec::new();
+    for pkg_req in package_reqs {
+      for (root_pkg, id) in &self.root_packages {
+        if pkg_req.kind == root_pkg.kind()
+          && pkg_req.req.name == root_pkg.req().name
+        {
+          pending_ids.push(id.clone());
+        }
+      }
+    }
+    self.remove_ids_recursively(pending_ids);
+  }
+
   pub fn remove_root_packages(
     &mut self,
     package_reqs: impl Iterator<Item = JsrDepPackageReq>,
   ) {
-    let mut pending_ids = package_reqs
+    let pending_ids = package_reqs
       .map(LockfilePkgReq::from_jsr_dep)
       .filter_map(|id| self.root_packages.get(&id).cloned())
-      .collect::<VecDeque<_>>();
+      .collect::<Vec<_>>();
+    self.remove_ids_recursively(pending_ids);
+  }
 
-    while let Some(pkg_id) = pending_ids.pop_front() {
+  fn remove_ids_recursively(&mut self, mut pending_ids: Vec<LockfilePkgId>) {
+    while let Some(pkg_id) = pending_ids.pop() {
       let Some(pkg) = self.packages.get_mut(&pkg_id) else {
         continue;
       };

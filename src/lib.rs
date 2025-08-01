@@ -215,6 +215,15 @@ pub struct LockfileLinkContent {
   pub peer_dependencies_meta: HashMap<String, serde_json::Value>,
 }
 
+impl LockfileLinkContent {
+  pub fn dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
+    self
+      .dependencies
+      .iter()
+      .chain(self.peer_dependencies.iter())
+  }
+}
+
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceConfigContent {
@@ -705,36 +714,51 @@ impl Lockfile {
     let allow_content_changed =
       self.has_content_changed || !self.content.is_empty();
 
-    let has_any_patch_changed = options.config.links.len()
-      != self.content.workspace.links.len()
-      || !options.config.links.is_empty()
-        && options.config.links.iter().all(|(patch, new)| {
-          let Some(existing) = self.content.workspace.links.get_mut(patch)
-          else {
-            return true;
-          };
-          new != existing
-        });
+    let has_any_patch_changed =
+      options.config.links != self.content.workspace.links;
+
+    let mut removed_deps = HashSet::new();
 
     // if a patch changes, it's quite complicated to figure out how to get it to redo
     // npm resolution just for that part, so for now, clear out all the npm dependencies
     // if any patch changes
+    let mut changed_links = HashSet::new();
     if has_any_patch_changed {
       self.has_content_changed = true;
-      self.content.packages.npm.clear();
-      self
+      let mut unhandled_links = self
         .content
-        .packages
-        .specifiers
-        .retain(|k, _| match k.kind {
-          deno_semver::package::PackageKind::Jsr => true,
-          deno_semver::package::PackageKind::Npm => false,
-        });
-      self.content.workspace.links.clear();
-      self.content.workspace.links.extend(options.config.links);
-    }
+        .workspace
+        .links
+        .keys()
+        .cloned()
+        .collect::<HashSet<_>>();
+      changed_links.reserve(options.config.links.len());
+      for (link_name, new) in options.config.links {
+        if !unhandled_links.remove(&link_name) {
+          if let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
+            changed_links.insert(dep_req);
+          }
+        }
+        let current = self
+          .content
+          .workspace
+          .links
+          .entry(link_name.clone())
+          .or_default();
+        if new != *current {
+          *current = new;
+          if let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
+            changed_links.insert(dep_req);
+          }
+        }
+      }
 
-    let mut removed_deps = HashSet::new();
+      for member in unhandled_links {
+        if let Some(member) = self.content.workspace.links.remove(&member) {
+          removed_deps.extend(member.dep_reqs().cloned());
+        }
+      }
+    }
 
     // set the root
     update_workspace_member(
@@ -780,7 +804,7 @@ impl Lockfile {
       removed_deps.remove(dep);
     }
 
-    if !removed_deps.is_empty() {
+    if !removed_deps.is_empty() || !changed_links.is_empty() {
       let packages = std::mem::take(&mut self.content.packages);
       let remotes = std::mem::take(&mut self.content.remote);
 
@@ -789,6 +813,9 @@ impl Lockfile {
 
       // remove the packages
       graph.remove_root_packages(removed_deps.into_iter());
+
+      // remove the changed links
+      graph.remove_links(changed_links.into_iter());
 
       // now populate the graph back into the packages
       graph.populate_packages(
