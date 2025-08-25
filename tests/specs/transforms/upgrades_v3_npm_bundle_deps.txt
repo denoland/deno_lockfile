@@ -1,0 +1,36 @@
+# original
+{
+  "version": "3",
+  "packages": {
+    "npm": {
+      "@c/pkg@2.1.5": {
+        "integrity": "sha512-a1",
+        "dependencies": {
+          "@b/pkg": "@b/pkg@2.0.5"
+        }
+      },
+      "@b/pkg@2.0.5": {
+        "integrity": "sha512-b1"
+      }
+    }
+  },
+  "remote": {}
+}
+
+# output (this keeps @b/pkg, which is not ideal, but fine)
+{
+  "version": "5",
+  "npm": {
+    "@b/pkg@2.0.5": {
+      "integrity": "sha512-b1",
+      "deprecated": true,
+      "tarball": "https://fake-registry.com/b/pkg-2.0.5.tgz"
+    },
+    "@c/pkg@2.1.5": {
+      "integrity": "sha512-a1",
+      "dependencies": [
+        "@b/pkg"
+      ]
+    }
+  }
+}

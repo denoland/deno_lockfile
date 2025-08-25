@@ -306,6 +306,10 @@ pub async fn transform4_to_5(
         value.insert("optionalPeers".into(), new_optional_peer_deps.into());
       }
 
+      for bundle_dep in &result.bundle_dependencies {
+        existing_deps.remove(bundle_dep);
+      }
+
       if existing_deps.is_empty() {
         value.remove("dependencies");
       } else {
@@ -347,6 +351,7 @@ pub async fn transform4_to_5(
 #[serde(rename_all = "camelCase", default)]
 pub struct Lockfile5NpmInfo {
   pub tarball_url: Option<String>,
+  pub bundle_dependencies: Vec<String>,
   pub optional_dependencies: BTreeMap<String, String>,
   pub optional_peers: BTreeMap<String, String>,
   pub cpu: Vec<String>,

@@ -1,0 +1,4 @@
+{
+  "tarballUrl": "https://fake-registry.com/a/pkg-2.1.5.tgz",
+  "bundleDependencies": ["@b/pkg"]
+}

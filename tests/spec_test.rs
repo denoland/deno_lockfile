@@ -289,6 +289,7 @@ impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
         if path.exists() {
           let text = std::fs::read_to_string(path).unwrap();
           let info: Lockfile5NpmInfo = serde_json::from_str(&text).unwrap();
+          eprintln!("INFO: {:?}", info);
           self
             .cache
             .borrow_mut()

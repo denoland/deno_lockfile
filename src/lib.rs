@@ -68,6 +68,7 @@ pub struct NpmPackageLockfileInfo {
   /// Will be `None` for patch packages.
   pub integrity: Option<String>,
   pub dependencies: Vec<NpmPackageDependencyLockfileInfo>,
+  pub bundle_dependencies: Vec<StackString>,
   pub optional_dependencies: Vec<NpmPackageDependencyLockfileInfo>,
   pub optional_peers: Vec<NpmPackageDependencyLockfileInfo>,
   pub os: Vec<SmallStackString>,
@@ -879,16 +880,19 @@ impl Lockfile {
     let optional_dependencies = package_info
       .optional_dependencies
       .into_iter()
+      .filter(|dep| !package_info.bundle_dependencies.contains(&dep.name))
       .map(|dep| (dep.name, dep.id))
       .collect::<BTreeMap<StackString, StackString>>();
     let dependencies = package_info
       .dependencies
       .into_iter()
+      .filter(|dep| !package_info.bundle_dependencies.contains(&dep.name))
       .map(|dep| (dep.name, dep.id))
       .collect::<BTreeMap<StackString, StackString>>();
     let optional_peers = package_info
       .optional_peers
       .into_iter()
+      .filter(|dep| !package_info.bundle_dependencies.contains(&dep.name))
       .map(|dep| (dep.name, dep.id))
       .collect::<BTreeMap<StackString, StackString>>();
 
@@ -1268,6 +1272,7 @@ mod tests {
       serialized_id: "nanoid@3.3.4".into(),
       integrity: Some("sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==".to_string()),
       dependencies: vec![],
+      bundle_dependencies: vec![],
       optional_dependencies: vec![],
       optional_peers: vec![],
       os: vec![],
@@ -1285,6 +1290,7 @@ mod tests {
       serialized_id: "picocolors@1.0.0".into(),
       integrity: Some("sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==".to_string()),
       dependencies: vec![],
+      bundle_dependencies: vec![],
       optional_dependencies: vec![],
       optional_peers: vec![],
       os: vec![],
@@ -1302,6 +1308,7 @@ mod tests {
       serialized_id: "source-map-js@1.0.2".into(),
       integrity: Some("sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==".to_string()),
       dependencies: vec![],
+      bundle_dependencies: vec![],
       optional_dependencies: vec![],
       optional_peers: vec![],
       os: vec![],
@@ -1324,6 +1331,7 @@ mod tests {
       serialized_id: "source-map-js@1.0.2".into(),
       integrity: Some("sha512-foobar".to_string()),
       dependencies: vec![],
+      bundle_dependencies: vec![],
       optional_dependencies: vec![],
       optional_peers: vec![],
       os: vec![],
@@ -1336,6 +1344,34 @@ mod tests {
     // Now present in lockfile, should be changed due to different integrity
     lockfile.insert_npm_package(npm_package);
     assert!(lockfile.has_content_changed);
+    lockfile.has_content_changed = false;
+
+    // now package with bundle dependencies
+    let npm_package = NpmPackageLockfileInfo {
+      serialized_id: "source-map-js@1.0.2".into(),
+      integrity: Some("sha512-foobar".to_string()),
+      dependencies: vec![NpmPackageDependencyLockfileInfo {
+        name: "dep".into(),
+        id: "dep@1.0.0".into(),
+      }],
+      bundle_dependencies: vec!["dep".into()],
+      optional_dependencies: vec![NpmPackageDependencyLockfileInfo {
+        name: "dep".into(),
+        id: "dep@1.0.0".into(),
+      }],
+      optional_peers: vec![NpmPackageDependencyLockfileInfo {
+        name: "dep".into(),
+        id: "dep@1.0.0".into(),
+      }],
+      os: vec![],
+      cpu: vec![],
+      tarball: None,
+      deprecated: false,
+      scripts: false,
+      bin: false,
+    };
+    lockfile.insert_npm_package(npm_package);
+    assert!(!lockfile.has_content_changed); // won't have changed because the dependencies will be removed due to "dep" being bundled
   }
 
   #[test]
