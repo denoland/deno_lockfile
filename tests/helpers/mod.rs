@@ -65,10 +65,10 @@ impl SpecSection {
       while let Some(line) = lines.next() {
         result.push_str(line);
         result.push('\n');
-        if let Some(next_line) = lines.peek() {
-          if next_line.starts_with('#') {
-            break;
-          }
+        if let Some(next_line) = lines.peek()
+          && next_line.starts_with('#')
+        {
+          break;
         }
       }
       result

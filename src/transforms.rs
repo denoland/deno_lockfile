@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use deno_semver::{package::PackageNv, Version};
+use deno_semver::{Version, package::PackageNv};
 use serde_json::Value;
 use thiserror::Error;
 

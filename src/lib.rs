@@ -7,20 +7,20 @@ mod error;
 mod graphs;
 
 use std::borrow::Cow;
-use std::collections::btree_map::Entry as BTreeMapEntry;
-use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::btree_map::Entry as BTreeMapEntry;
+use std::collections::hash_map::Entry as HashMapEntry;
 use std::path::PathBuf;
 
-use deno_semver::jsr::JsrDepPackageReq;
-use deno_semver::package::PackageNv;
 use deno_semver::SmallStackString;
 use deno_semver::StackString;
-use serde::de::DeserializeOwned;
+use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use serde::Deserialize;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 mod printer;
 mod transforms;
@@ -735,9 +735,10 @@ impl Lockfile {
       changed_links.reserve(options.config.links.len());
       for (link_name, new) in options.config.links {
         if !unhandled_links.remove(&link_name)
-          && let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
-            changed_links.insert(dep_req);
-          }
+          && let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name)
+        {
+          changed_links.insert(dep_req);
+        }
         let current = self
           .content
           .workspace
