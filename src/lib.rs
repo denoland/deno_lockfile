@@ -734,11 +734,10 @@ impl Lockfile {
         .collect::<HashSet<_>>();
       changed_links.reserve(options.config.links.len());
       for (link_name, new) in options.config.links {
-        if !unhandled_links.remove(&link_name) {
-          if let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
+        if !unhandled_links.remove(&link_name)
+          && let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
             changed_links.insert(dep_req);
           }
-        }
         let current = self
           .content
           .workspace
