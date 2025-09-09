@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io;
 
-use deno_semver::jsr::JsrDepPackageReq;
-use deno_semver::package::PackageNv;
 use deno_semver::SmallStackString;
 use deno_semver::StackString;
+use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageNv;
 use serde::Serialize;
 
 use crate::JsrPackageInfo;
@@ -215,7 +215,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
 
   fn handle_npm(
     npm: &BTreeMap<StackString, NpmPackageInfo>,
-  ) -> BTreeMap<&str, SerializedNpmPkg> {
+  ) -> BTreeMap<&'_ str, SerializedNpmPkg<'_>> {
     fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
       if value.is_empty() {
         return None;
@@ -335,7 +335,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
 
   fn handle_workspace(
     content: &WorkspaceConfigContent,
-  ) -> SerializedWorkspaceConfigContent {
+  ) -> SerializedWorkspaceConfigContent<'_> {
     SerializedWorkspaceConfigContent {
       root: handle_workspace_member(&content.root),
       members: content
@@ -424,10 +424,10 @@ impl serde_json::ser::Formatter for Formatter<'_> {
   where
     W: ?Sized + io::Write,
   {
-    if self.in_key {
-      if let Some(last_key) = &mut self.last_key {
-        last_key.push_str(fragment);
-      }
+    if self.in_key
+      && let Some(last_key) = &mut self.last_key
+    {
+      last_key.push_str(fragment);
     }
     writer.write_all(fragment.as_bytes())
   }
@@ -437,10 +437,10 @@ impl serde_json::ser::Formatter for Formatter<'_> {
     W: ?Sized + io::Write,
   {
     let mut should_indent = true;
-    if let Some(last_key) = &self.last_key {
-      if last_key == "os" || last_key == "cpu" {
-        should_indent = false;
-      }
+    if let Some(last_key) = &self.last_key
+      && (last_key == "os" || last_key == "cpu")
+    {
+      should_indent = false;
     }
     if should_indent {
       self.current_indent += 1;
@@ -455,10 +455,10 @@ impl serde_json::ser::Formatter for Formatter<'_> {
     W: ?Sized + io::Write,
   {
     let mut should_dedent = true;
-    if let Some(last_key) = &self.last_key {
-      if last_key == "os" || last_key == "cpu" {
-        should_dedent = false;
-      }
+    if let Some(last_key) = &self.last_key
+      && (last_key == "os" || last_key == "cpu")
+    {
+      should_dedent = false;
     }
     if should_dedent {
       self.current_indent -= 1;
@@ -481,14 +481,14 @@ impl serde_json::ser::Formatter for Formatter<'_> {
   where
     W: ?Sized + io::Write,
   {
-    if let Some(last_key) = &self.last_key {
-      if last_key == "os" || last_key == "cpu" {
-        if !first {
-          writer.write_all(b", ")?;
-        }
-
-        return Ok(());
+    if let Some(last_key) = &self.last_key
+      && (last_key == "os" || last_key == "cpu")
+    {
+      if !first {
+        writer.write_all(b", ")?;
       }
+
+      return Ok(());
     }
     writer.write_all(if first { b"\n" } else { b",\n" })?;
     indent(writer, self.current_indent, self.indent)

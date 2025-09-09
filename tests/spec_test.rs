@@ -20,13 +20,13 @@ use deno_lockfile::WorkspaceConfig;
 use deno_lockfile::WorkspaceMemberConfig;
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageNv;
-use file_test_runner::collect_and_run_tests;
-use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
-use file_test_runner::collection::CollectOptions;
-use file_test_runner::collection::CollectedTest;
 use file_test_runner::RunOptions;
 use file_test_runner::SubTestResult;
 use file_test_runner::TestResult;
+use file_test_runner::collect_and_run_tests;
+use file_test_runner::collection::CollectOptions;
+use file_test_runner::collection::CollectedTest;
+use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 use helpers::ConfigChangeSpec;
 use helpers::SpecSection;
 use pretty_assertions::assert_eq;
@@ -278,10 +278,7 @@ impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
   {
     let mut infos = Vec::with_capacity(packages.len());
     for package in packages {
-      let info = {
-        let info = self.cache.borrow().get(package).cloned();
-        info
-      };
+      let info = { self.cache.borrow().get(package).cloned() };
       if let Some(info) = info {
         infos.push(info);
       } else {

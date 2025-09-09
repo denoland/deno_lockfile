@@ -5,13 +5,13 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use deno_semver::SmallStackString;
+use deno_semver::StackString;
+use deno_semver::Version;
 use deno_semver::jsr::JsrDepPackageReq;
 use deno_semver::package::PackageKind;
 use deno_semver::package::PackageNv;
 use deno_semver::package::PackageReq;
-use deno_semver::SmallStackString;
-use deno_semver::StackString;
-use deno_semver::Version;
 
 use crate::NpmPackageInfo;
 use crate::PackagesContent;

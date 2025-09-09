@@ -3,7 +3,7 @@
 [package]
 name = "deno_lockfile"
 version = "0.31.2"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "An implementation of a lockfile used in Deno"
 repository = "https://github.com/denoland/deno_lockfile"
