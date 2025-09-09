@@ -215,7 +215,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
 
   fn handle_npm(
     npm: &BTreeMap<StackString, NpmPackageInfo>,
-  ) -> BTreeMap<&str, SerializedNpmPkg> {
+  ) -> BTreeMap<&'_ str, SerializedNpmPkg> {
     fn extract_nv_from_id(value: &str) -> Option<(&str, &str)> {
       if value.is_empty() {
         return None;
@@ -335,7 +335,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
 
   fn handle_workspace(
     content: &WorkspaceConfigContent,
-  ) -> SerializedWorkspaceConfigContent {
+  ) -> SerializedWorkspaceConfigContent<'_> {
     SerializedWorkspaceConfigContent {
       root: handle_workspace_member(&content.root),
       members: content
