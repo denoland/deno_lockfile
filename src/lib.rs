@@ -16,7 +16,9 @@ use std::path::PathBuf;
 
 use deno_semver::SmallStackString;
 use deno_semver::StackString;
+use deno_semver::Version;
 use deno_semver::jsr::JsrDepPackageReq;
+use deno_semver::package::PackageKind;
 use deno_semver::package::PackageNv;
 use serde::Deserialize;
 use serde::Serialize;
@@ -108,6 +110,82 @@ pub struct NpmPackageInfo {
   pub bin: bool,
 }
 
+impl NpmPackageInfo {
+  pub fn matches_link(&self, link: &LockfileLinkContent) -> bool {
+    fn parse_nv(v: &StackString) -> Option<PackageNv> {
+      let v = v.split_once('_').map(|(l, _)| l).unwrap_or(v);
+      PackageNv::from_str(v).ok()
+    }
+
+    fn matches(
+      link_deps: &HashSet<JsrDepPackageReq>,
+      self_deps: &HashSet<PackageNv>,
+    ) -> bool {
+      if link_deps.len() != self_deps.len() {
+        return false;
+      }
+      for req in link_deps {
+        if !self_deps.iter().any(|nv| {
+          nv.name == req.req.name && req.req.version_req.matches(&nv.version)
+        }) {
+          return false;
+        }
+      }
+      true
+    }
+
+    {
+      let optional_dep_nvs = self
+        .optional_dependencies
+        .values()
+        .filter_map(parse_nv)
+        .collect::<HashSet<_>>();
+      if !matches(&link.optional_dependencies, &optional_dep_nvs) {
+        return false;
+      }
+    }
+    {
+      let dep_nvs = self
+        .dependencies
+        .values()
+        .filter_map(parse_nv)
+        .collect::<HashSet<_>>();
+      let link_deps = link
+        .dependencies
+        .iter()
+        .chain(link.peer_dependencies.iter())
+        .cloned()
+        .collect::<HashSet<_>>();
+      if !matches(&link_deps, &dep_nvs) {
+        return false;
+      }
+    }
+    {
+      let optional_peer_nvs = self
+        .optional_peers
+        .values()
+        .filter_map(parse_nv)
+        .collect::<HashSet<_>>();
+      let link_optional_peers = link
+        .peer_dependencies_meta
+        .iter()
+        .filter(|(_, value)| {
+          value
+            .as_object()
+            .and_then(|o| o.get("optional"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        })
+        .filter_map(|(k, _)| JsrDepPackageReq::from_str(k).ok())
+        .collect::<HashSet<_>>();
+      if !matches(&link_optional_peers, &optional_peer_nvs) {
+        return false;
+      }
+    }
+    true
+  }
+}
+
 fn is_false(value: &bool) -> bool {
   !value
 }
@@ -125,6 +203,12 @@ pub struct JsrPackageInfo {
   ///
   /// This is used to tell when a package can be removed from the lockfile.
   pub dependencies: HashSet<JsrDepPackageReq>,
+}
+
+impl JsrPackageInfo {
+  pub fn matches_link(&self, link: &LockfileLinkContent) -> bool {
+    self.dependencies == link.dependencies
+  }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -208,6 +292,9 @@ pub struct LockfileLinkContent {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub dependencies: HashSet<JsrDepPackageReq>,
   #[serde(default)]
+  #[serde(skip_serializing_if = "HashSet::is_empty")]
+  pub optional_dependencies: HashSet<JsrDepPackageReq>,
+  #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub peer_dependencies: HashSet<JsrDepPackageReq>,
   #[serde(default)]
@@ -221,6 +308,7 @@ impl LockfileLinkContent {
       .dependencies
       .iter()
       .chain(self.peer_dependencies.iter())
+      .chain(self.optional_dependencies.iter())
   }
 }
 
@@ -718,10 +806,6 @@ impl Lockfile {
       options.config.links != self.content.workspace.links;
 
     let mut removed_deps = HashSet::new();
-
-    // if a patch changes, it's quite complicated to figure out how to get it to redo
-    // npm resolution just for that part, so for now, clear out all the npm dependencies
-    // if any patch changes
     let mut changed_links = HashSet::new();
     if has_any_patch_changed {
       self.has_content_changed = true;
@@ -734,21 +818,55 @@ impl Lockfile {
         .collect::<HashSet<_>>();
       changed_links.reserve(options.config.links.len());
       for (link_name, new) in options.config.links {
-        if !unhandled_links.remove(&link_name)
-          && let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name)
-        {
-          changed_links.insert(dep_req);
-        }
-        let current = self
-          .content
-          .workspace
-          .links
-          .entry(link_name.clone())
-          .or_default();
-        if new != *current {
-          *current = new;
+        if !unhandled_links.remove(&link_name) {
           if let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
-            changed_links.insert(dep_req);
+            let had_change =
+              match self.content.packages.specifiers.get(&dep_req) {
+                Some(value) => match dep_req.kind {
+                  PackageKind::Jsr => match Version::parse_standard(value) {
+                    Ok(version) => {
+                      let nv = PackageNv {
+                        name: dep_req.req.name.clone(),
+                        version: version.clone(),
+                      };
+                      self
+                        .content
+                        .packages
+                        .jsr
+                        .get(&nv)
+                        .map(|info| !info.matches_link(&new))
+                        .unwrap_or(false)
+                    }
+                    Err(_) => false,
+                  },
+                  PackageKind::Npm => self
+                    .content
+                    .packages
+                    .npm
+                    .get(value.as_str())
+                    .map(|info| !info.matches_link(&new))
+                    .unwrap_or(false),
+                },
+                None => false,
+              };
+
+            if had_change {
+              changed_links.insert(dep_req);
+            }
+          }
+          self.content.workspace.links.insert(link_name.clone(), new);
+        } else {
+          let current = self
+            .content
+            .workspace
+            .links
+            .entry(link_name.clone())
+            .or_default();
+          if new != *current {
+            *current = new;
+            if let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
+              changed_links.insert(dep_req);
+            }
           }
         }
       }

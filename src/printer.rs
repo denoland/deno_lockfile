@@ -92,6 +92,9 @@ struct SerializedLockfileLinkContent {
   pub dependencies: Vec<SerializedJsrDepPackageReq>,
   #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub optional_dependencies: Vec<SerializedJsrDepPackageReq>,
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Vec::is_empty")]
   pub peer_dependencies: Vec<SerializedJsrDepPackageReq>,
   #[serde(default)]
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -313,6 +316,7 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
   ) -> SerializedLockfileLinkContent {
     SerializedLockfileLinkContent {
       dependencies: sort_deps(&content.dependencies),
+      optional_dependencies: sort_deps(&content.optional_dependencies),
       peer_dependencies: sort_deps(&content.peer_dependencies),
       peer_dependencies_meta: content
         .peer_dependencies_meta
