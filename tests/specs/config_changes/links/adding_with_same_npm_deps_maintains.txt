@@ -33,7 +33,7 @@
 # set with the same structure should maintain
 {
   "links": {
-    "npm:package@*": {
+    "npm:package@1.0.0": {
       "dependencies": [
         "npm:package-a@*"
       ],
