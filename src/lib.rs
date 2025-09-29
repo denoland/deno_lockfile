@@ -235,7 +235,7 @@ pub struct PackagesContent {
 
   /// Mapping between resolved npm specifiers and their associated info, eg.
   /// {
-  ///   "chalk@5.0.0": {
+  ///   "chalk@5.0.0_peer-dep@1": {
   ///     "integrity": "sha512-...",
   ///     "dependencies": {
   ///       "ansi-styles": "ansi-styles@4.1.0",
@@ -820,35 +820,43 @@ impl Lockfile {
       for (link_name, new) in options.config.links {
         if !unhandled_links.remove(&link_name) {
           if let Ok(dep_req) = JsrDepPackageReq::from_str(&link_name) {
-            let had_change =
-              match self.content.packages.specifiers.get(&dep_req) {
-                Some(value) => match dep_req.kind {
-                  PackageKind::Jsr => match Version::parse_standard(value) {
-                    Ok(version) => {
-                      let nv = PackageNv {
-                        name: dep_req.req.name.clone(),
-                        version: version.clone(),
-                      };
-                      self
-                        .content
-                        .packages
-                        .jsr
-                        .get(&nv)
-                        .map(|info| !info.matches_link(&new))
-                        .unwrap_or(false)
-                    }
-                    Err(_) => false,
-                  },
-                  PackageKind::Npm => self
-                    .content
-                    .packages
-                    .npm
-                    .get(value.as_str())
-                    .map(|info| !info.matches_link(&new))
-                    .unwrap_or(false),
-                },
-                None => false,
-              };
+            let had_change = (|| match dep_req.kind {
+              PackageKind::Jsr => {
+                for (key, package) in &self.content.packages.jsr {
+                  if key.name != dep_req.req.name {
+                    continue;
+                  }
+                  if !dep_req.req.version_req.matches(&key.version)
+                    || !package.matches_link(&new)
+                  {
+                    return true;
+                  }
+                }
+                false
+              }
+              PackageKind::Npm => {
+                for (key, package) in &self.content.packages.npm {
+                  let Some(key) = key.strip_prefix(dep_req.req.name.as_str())
+                  else {
+                    continue;
+                  };
+                  let Some(key) = key.strip_prefix('@') else {
+                    continue;
+                  };
+                  let version =
+                    key.split_once('_').map(|(l, _)| l).unwrap_or(key);
+                  let Ok(version) = Version::parse_from_npm(version) else {
+                    continue;
+                  };
+                  if !dep_req.req.version_req.matches(&version)
+                    || !package.matches_link(&new)
+                  {
+                    return true;
+                  }
+                }
+                false
+              }
+            })();
 
             if had_change {
               changed_links.insert(dep_req);
