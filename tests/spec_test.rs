@@ -91,9 +91,11 @@ async fn config_changes_test(test: &CollectedTest) {
 
   #[derive(Debug, Default, Clone, Deserialize, Hash)]
   #[serde(rename_all = "camelCase")]
-  struct PatchConfigContent {
+  struct LinkConfigContent {
     #[serde(default)]
     dependencies: BTreeSet<JsrDepPackageReq>,
+    #[serde(default)]
+    optional_dependencies: BTreeSet<JsrDepPackageReq>,
     #[serde(default)]
     peer_dependencies: BTreeSet<JsrDepPackageReq>,
     #[serde(default)]
@@ -116,7 +118,7 @@ async fn config_changes_test(test: &CollectedTest) {
     members: BTreeMap<String, WorkspaceMemberConfigContent>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    links: BTreeMap<String, PatchConfigContent>,
+    links: BTreeMap<String, LinkConfigContent>,
   }
 
   impl WorkspaceConfigContent {
@@ -156,6 +158,10 @@ async fn config_changes_test(test: &CollectedTest) {
               k,
               LockfileLinkContent {
                 dependencies: v.dependencies.into_iter().collect(),
+                optional_dependencies: v
+                  .optional_dependencies
+                  .into_iter()
+                  .collect(),
                 peer_dependencies: v.peer_dependencies.into_iter().collect(),
                 peer_dependencies_meta: v
                   .peer_dependencies_meta

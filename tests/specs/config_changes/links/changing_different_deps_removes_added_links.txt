@@ -17,10 +17,14 @@
   }
 }
 
-# remove
+# adds link
 {
   "links": {
-    "jsr:@scope/package_a@*": {}
+    "jsr:@scope/package_a@*": {
+      "dependencies": [
+        "npm:code-block-writer@*"
+      ]
+    }
   }
 }
 
@@ -37,7 +41,11 @@
   },
   "workspace": {
     "links": {
-      "jsr:@scope/package_a@*": {}
+      "jsr:@scope/package_a@*": {
+        "dependencies": [
+          "npm:code-block-writer@*"
+        ]
+      }
     }
   }
 }
