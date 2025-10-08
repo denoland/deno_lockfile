@@ -257,46 +257,54 @@ impl LockfilePackageGraph {
         }
       }
     }
-    self.remove_ids_recursively(pending_ids);
+    for id in &pending_ids {
+      self.remove_root_pkg_by_id(&id);
+    }
   }
 
   pub fn remove_root_packages(
     &mut self,
     package_reqs: impl Iterator<Item = JsrDepPackageReq>,
   ) {
-    let pending_ids = package_reqs
-      .map(LockfilePkgReq::from_jsr_dep)
-      .filter_map(|id| self.root_packages.get(&id).cloned())
-      .collect::<Vec<_>>();
-    self.remove_ids_recursively(pending_ids);
+    let package_reqs = package_reqs
+      .map(LockfilePkgReq::from_jsr_dep);
+    for req in package_reqs {
+      if let Some(id) = self.root_packages.get(&req).cloned() {
+        self.remove_root_pkg_by_id(&id);
+      }
+    }
   }
 
-  fn remove_ids_recursively(&mut self, mut pending_ids: Vec<LockfilePkgId>) {
-    while let Some(pkg_id) = pending_ids.pop() {
-      let Some(pkg) = self.packages.get_mut(&pkg_id) else {
-        continue;
-      };
-      match pkg {
-        LockfileGraphPackage::Jsr(pkg) => {
-          pending_ids.extend(
-            pkg
-              .dependencies
-              .iter()
-              .filter_map(|req| self.root_packages.get(req))
-              .cloned(),
-          );
-          pending_ids.extend(pkg.dependents.drain());
-        }
-        LockfileGraphPackage::Npm(pkg) => {
-          pending_ids.extend(
-            pkg
-              .all_dependency_ids()
-              .map(|dep_id| LockfilePkgId::Npm(dep_id.clone())),
-          );
-          pending_ids.extend(pkg.dependents.drain());
+  fn remove_root_pkg_by_id(&mut self, id: &LockfilePkgId) {
+    if let LockfilePkgId::Jsr(_) = id {
+      let mut root_ids_to_remove = Vec::new();
+      let mut pending_ids = vec![id.clone()];
+      while let Some(id) = pending_ids.pop() {
+        root_ids_to_remove.push(id.clone());
+        let Some(pkg) = self.packages.get_mut(&id) else {
+          continue;
+        };
+        match pkg {
+          LockfileGraphPackage::Jsr(pkg) => {
+            pending_ids.extend(
+              pkg
+                .dependencies
+                .iter()
+                .filter_map(|req| self.root_packages.get(req))
+                .cloned(),
+            );
+            pending_ids.extend(pkg.dependents.drain());
+            self.packages.remove(&id);
+          }
+          LockfileGraphPackage::Npm(_) => {
+          }
         }
       }
-      self.remove_package(&pkg_id);
+      root_ids_to_remove.sort();
+      root_ids_to_remove.dedup();
+      self.root_packages.retain(|_, pkg_id| root_ids_to_remove.binary_search(pkg_id).is_err());
+    } else {
+      self.root_packages.retain(|_, pkg_id| pkg_id != id);
     }
   }
 
