@@ -258,7 +258,7 @@ impl LockfilePackageGraph {
       }
     }
     for id in &pending_ids {
-      self.remove_root_pkg_by_id(&id);
+      self.remove_root_pkg_by_id(id);
     }
   }
 
@@ -266,8 +266,7 @@ impl LockfilePackageGraph {
     &mut self,
     package_reqs: impl Iterator<Item = JsrDepPackageReq>,
   ) {
-    let package_reqs = package_reqs
-      .map(LockfilePkgReq::from_jsr_dep);
+    let package_reqs = package_reqs.map(LockfilePkgReq::from_jsr_dep);
     for req in package_reqs {
       if let Some(id) = self.root_packages.get(&req).cloned() {
         self.remove_root_pkg_by_id(&id);
@@ -276,41 +275,53 @@ impl LockfilePackageGraph {
   }
 
   fn remove_root_pkg_by_id(&mut self, id: &LockfilePkgId) {
-    if let LockfilePkgId::Jsr(_) = id {
-      let mut root_ids_to_remove = Vec::new();
-      let mut pending_ids = vec![id.clone()];
-      while let Some(id) = pending_ids.pop() {
-        root_ids_to_remove.push(id.clone());
-        let Some(pkg) = self.packages.get_mut(&id) else {
-          continue;
-        };
-        match pkg {
-          LockfileGraphPackage::Jsr(pkg) => {
-            pending_ids.extend(
-              pkg
-                .dependencies
-                .iter()
-                .filter_map(|req| self.root_packages.get(req))
-                .cloned(),
-            );
-            pending_ids.extend(pkg.dependents.drain());
-            self.packages.remove(&id);
-          }
-          LockfileGraphPackage::Npm(_) => {
+    // The ideal goal here is to only disassociate the package
+    // from the root so that the the current dependencies can be
+    // reused in the new dependency resolution thereby causing
+    // minimal changes in the lockfile. After we let deno_npm or
+    // deno_graph clean up any stragglers.
+    //
+    // We're currently achieving this goal with npm packages, but
+    // jsr packages are still lacking deduplication functionality
+    // in deno_graph. So, we've taken a halfway step where npm deps
+    // disassociate from the root only, but jsr deps and all their
+    // jsr connections need to be purged from the lockfile.
+    match id {
+      LockfilePkgId::Jsr(_) => {
+        let mut root_ids_to_remove = Vec::new();
+        let mut pending_ids = vec![id.clone()];
+        while let Some(id) = pending_ids.pop() {
+          root_ids_to_remove.push(id.clone());
+          let Some(pkg) = self.packages.get_mut(&id) else {
+            continue;
+          };
+          match pkg {
+            LockfileGraphPackage::Jsr(pkg) => {
+              pending_ids.extend(
+                pkg
+                  .dependencies
+                  .iter()
+                  .filter_map(|req| self.root_packages.get(req))
+                  .cloned(),
+              );
+              pending_ids.extend(pkg.dependents.drain());
+              self.packages.remove(&id);
+            }
+            LockfileGraphPackage::Npm(_) => {}
           }
         }
-      }
-      root_ids_to_remove.sort();
-      root_ids_to_remove.dedup();
-      self.root_packages.retain(|_, pkg_id| root_ids_to_remove.binary_search(pkg_id).is_err());
-    } else {
-      self.root_packages.retain(|_, pkg_id| pkg_id != id);
-    }
-  }
 
-  fn remove_package(&mut self, id: &LockfilePkgId) {
-    self.packages.remove(id);
-    self.root_packages.retain(|_, pkg_id| pkg_id != id);
+        // sort and dedup for binary search
+        root_ids_to_remove.sort();
+        root_ids_to_remove.dedup();
+        self.root_packages.retain(|_, pkg_id| {
+          root_ids_to_remove.binary_search(pkg_id).is_err()
+        });
+      }
+      LockfilePkgId::Npm(_) => {
+        self.root_packages.retain(|_, pkg_id| pkg_id != id);
+      }
+    }
   }
 
   pub fn populate_packages(
