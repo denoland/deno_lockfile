@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "deno_lockfile"
-version = "0.32.0"
+version = "0.32.1"
 dependencies = [
  "async-executor",
  "async-trait",
