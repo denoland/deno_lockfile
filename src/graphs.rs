@@ -288,8 +288,9 @@ impl LockfilePackageGraph {
     // jsr connections need to be purged from the lockfile.
     match id {
       LockfilePkgId::Jsr(_) => {
-        let mut root_ids_to_remove = Vec::new();
-        let mut pending_ids = vec![id.clone()];
+        let mut root_ids_to_remove = Vec::with_capacity(self.packages.len());
+        let mut pending_ids = Vec::with_capacity(self.packages.len());
+        pending_ids.push(id.clone());
         while let Some(id) = pending_ids.pop() {
           root_ids_to_remove.push(id.clone());
           let Some(pkg) = self.packages.get_mut(&id) else {
