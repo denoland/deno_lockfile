@@ -30,7 +30,7 @@
   }
 }
 
-# non-matching constraint, should clear
+# non-matching constraint, should clear specifier
 {
   "links": {
     "npm:package@1.0.0": {
@@ -55,6 +55,30 @@
 # output
 {
   "version": "5",
+  "npm": {
+    "package-a@1.0.0": {
+      "integrity": "sha512-dbDtVdEAncKctzrVZ+Nr7kHpHkv+0JDJb2MjjpBaj8bFeCkePU9rHfMklmhuLFnpeq/EJZk2IhStY6NzqgjOkg=="
+    },
+    "package-optional-peer@1.0.0": {
+      "integrity": "sha512-dbDtVdEAncKctzrVZ+Nr7kHpHkv+0JDJb2MjjpBaj8bFeCkePU9rHfMklmhuLFnpeq/EJZk2IhStY6NzqgjOkg=="
+    },
+    "package-optional@1.0.0": {
+      "integrity": "sha512-dbDtVdEAncKctzrVZ+Nr7kHpHkv+0JDJb2MjjpBaj8bFeCkePU9rHfMklmhuLFnpeq/EJZk2IhStY6NzqgjOkg=="
+    },
+    "package@1.0.0": {
+      "integrity": "sha512-dbDtVdEAncKctzrVZ+Nr7kHpHkv+0JDJb2MjjpBaj8bFeCkePU9rHfMklmhuLFnpeq/EJZk2IhStY6NzqgjOkg==",
+      "dependencies": [
+        "package-a",
+        "package-optional-peer"
+      ],
+      "optionalDependencies": [
+        "package-optional"
+      ],
+      "optionalPeers": [
+        "package-optional-peer"
+      ]
+    }
+  },
   "workspace": {
     "links": {
       "npm:package@1.0.0": {
