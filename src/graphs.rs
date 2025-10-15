@@ -331,22 +331,6 @@ impl LockfilePackageGraph {
     remotes: &mut BTreeMap<String, String>,
   ) {
     *remotes = self.remotes;
-    for (req, id) in self.root_packages {
-      let value = match &id {
-        LockfilePkgId::Jsr(nv) => {
-          nv.0.version.to_custom_string::<SmallStackString>()
-        }
-        LockfilePkgId::Npm(id) => id
-          .0
-          .as_str()
-          .strip_prefix(req.req().name.as_str())
-          .unwrap()
-          .strip_prefix("@")
-          .unwrap()
-          .into(),
-      };
-      packages.specifiers.insert(req.into_jsr_dep(), value);
-    }
 
     for (id, package) in self.packages {
       match package {
@@ -361,6 +345,7 @@ impl LockfilePackageGraph {
               dependencies: package
                 .dependencies
                 .into_iter()
+                .filter(|dep| self.root_packages.contains_key(dep))
                 .map(|req| req.into_jsr_dep())
                 .collect(),
             },
@@ -399,6 +384,23 @@ impl LockfilePackageGraph {
           );
         }
       }
+    }
+
+    for (req, id) in self.root_packages {
+      let value = match &id {
+        LockfilePkgId::Jsr(nv) => {
+          nv.0.version.to_custom_string::<SmallStackString>()
+        }
+        LockfilePkgId::Npm(id) => id
+          .0
+          .as_str()
+          .strip_prefix(req.req().name.as_str())
+          .unwrap()
+          .strip_prefix("@")
+          .unwrap()
+          .into(),
+      };
+      packages.specifiers.insert(req.into_jsr_dep(), value);
     }
   }
 }
