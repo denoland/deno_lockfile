@@ -784,6 +784,12 @@ impl Lockfile {
             .unwrap_or_default();
         }
       }
+      if options.config.npm_overrides.is_none() {
+        options
+          .config
+          .npm_overrides
+          .clone_from(&self.content.workspace.npm_overrides);
+      }
     }
     if options.no_config {
       if options.config.root.dependencies.is_empty() {
