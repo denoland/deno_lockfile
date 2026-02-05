@@ -72,15 +72,19 @@ impl SerializedJsrDepPackageReq {
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SerializedLockfilePackageJsonContent {
+struct SerializedLockfilePackageJsonContent<'a> {
   #[serde(default)]
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub dependencies: Vec<SerializedJsrDepPackageReq>,
+  /// npm overrides from the root package.json (only set for root)
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub overrides: Option<&'a serde_json::Value>,
 }
 
-impl SerializedLockfilePackageJsonContent {
+impl SerializedLockfilePackageJsonContent<'_> {
   pub fn is_empty(&self) -> bool {
-    self.dependencies.is_empty()
+    self.dependencies.is_empty() && self.overrides.is_none()
   }
 }
 
@@ -103,7 +107,7 @@ struct SerializedLockfileLinkContent {
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SerializedWorkspaceMemberConfigContent {
+struct SerializedWorkspaceMemberConfigContent<'a> {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[serde(default)]
   pub dependencies: Vec<SerializedJsrDepPackageReq>,
@@ -111,10 +115,10 @@ struct SerializedWorkspaceMemberConfigContent {
     skip_serializing_if = "SerializedLockfilePackageJsonContent::is_empty"
   )]
   #[serde(default)]
-  pub package_json: SerializedLockfilePackageJsonContent,
+  pub package_json: SerializedLockfilePackageJsonContent<'a>,
 }
 
-impl SerializedWorkspaceMemberConfigContent {
+impl SerializedWorkspaceMemberConfigContent<'_> {
   pub fn is_empty(&self) -> bool {
     self.dependencies.is_empty() && self.package_json.is_empty()
   }
@@ -124,24 +128,18 @@ impl SerializedWorkspaceMemberConfigContent {
 #[serde(rename_all = "camelCase")]
 struct SerializedWorkspaceConfigContent<'a> {
   #[serde(default, flatten)]
-  pub root: SerializedWorkspaceMemberConfigContent,
+  pub root: SerializedWorkspaceMemberConfigContent<'a>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
-  pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent>,
+  pub members: BTreeMap<&'a str, SerializedWorkspaceMemberConfigContent<'a>>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[serde(default)]
   pub links: BTreeMap<&'a str, SerializedLockfileLinkContent>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[serde(default)]
-  pub overrides: Option<&'a serde_json::Value>,
 }
 
 impl SerializedWorkspaceConfigContent<'_> {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty()
-      && self.members.is_empty()
-      && self.links.is_empty()
-      && self.overrides.is_none()
+    self.root.is_empty() && self.members.is_empty() && self.links.is_empty()
   }
 }
 
@@ -300,20 +298,23 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
       .collect()
   }
 
-  fn handle_pkg_json_content(
+  fn handle_pkg_json_content<'a>(
     content: &LockfilePackageJsonContent,
-  ) -> SerializedLockfilePackageJsonContent {
+    npm_overrides: Option<&'a serde_json::Value>,
+  ) -> SerializedLockfilePackageJsonContent<'a> {
     SerializedLockfilePackageJsonContent {
       dependencies: sort_deps(&content.dependencies),
+      overrides: npm_overrides,
     }
   }
 
-  fn handle_workspace_member(
+  fn handle_workspace_member<'a>(
     member: &WorkspaceMemberConfigContent,
-  ) -> SerializedWorkspaceMemberConfigContent {
+    npm_overrides: Option<&'a serde_json::Value>,
+  ) -> SerializedWorkspaceMemberConfigContent<'a> {
     SerializedWorkspaceMemberConfigContent {
       dependencies: sort_deps(&member.dependencies),
-      package_json: handle_pkg_json_content(&member.package_json),
+      package_json: handle_pkg_json_content(&member.package_json, npm_overrides),
     }
   }
 
@@ -347,18 +348,18 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
     content: &WorkspaceConfigContent,
   ) -> SerializedWorkspaceConfigContent<'_> {
     SerializedWorkspaceConfigContent {
-      root: handle_workspace_member(&content.root),
+      // pass npm_overrides only to root's packageJson section
+      root: handle_workspace_member(&content.root, content.npm_overrides.as_ref()),
       members: content
         .members
         .iter()
-        .map(|(key, value)| (key.as_str(), handle_workspace_member(value)))
+        .map(|(key, value)| (key.as_str(), handle_workspace_member(value, None)))
         .collect(),
       links: content
         .links
         .iter()
         .map(|(key, value)| (key.as_str(), handle_patch_content(value)))
         .collect(),
-      overrides: content.overrides.as_ref(),
     }
   }
 

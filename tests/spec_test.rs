@@ -120,7 +120,8 @@ async fn config_changes_test(test: &CollectedTest) {
     #[serde(default)]
     links: BTreeMap<String, LinkConfigContent>,
     #[serde(default)]
-    overrides: Option<serde_json::Value>,
+    #[serde(alias = "overrides")]
+    npm_overrides: Option<serde_json::Value>,
   }
 
   impl WorkspaceConfigContent {
@@ -174,7 +175,7 @@ async fn config_changes_test(test: &CollectedTest) {
             )
           })
           .collect(),
-        overrides: self.overrides,
+        npm_overrides: self.npm_overrides,
       }
     }
   }

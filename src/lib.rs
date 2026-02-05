@@ -56,8 +56,8 @@ pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: HashMap<String, WorkspaceMemberConfig>,
   pub links: HashMap<String, LockfileLinkContent>,
-  /// npm overrides from package.json
-  pub overrides: Option<serde_json::Value>,
+  /// npm overrides from the root package.json
+  pub npm_overrides: Option<serde_json::Value>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -255,12 +255,16 @@ impl PackagesContent {
 
 #[derive(Debug, Default, Clone, Deserialize)]
 pub(crate) struct LockfilePackageJsonContent {
+  #[serde(default)]
   pub dependencies: HashSet<JsrDepPackageReq>,
+  /// npm overrides (only present in root package.json section)
+  #[serde(default)]
+  pub overrides: Option<serde_json::Value>,
 }
 
 impl LockfilePackageJsonContent {
   pub fn is_empty(&self) -> bool {
-    self.dependencies.is_empty()
+    self.dependencies.is_empty() && self.overrides.is_none()
   }
 }
 
@@ -324,10 +328,9 @@ pub(crate) struct WorkspaceConfigContent {
   // todo(dsherret): patches is deprecated, remove in Deno 3.0
   #[serde(default, alias = "patches")]
   pub links: HashMap<String, LockfileLinkContent>,
-  /// npm overrides from package.json
+  /// npm overrides from the root package.json
   #[serde(default)]
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub overrides: Option<serde_json::Value>,
+  pub npm_overrides: Option<serde_json::Value>,
 }
 
 impl WorkspaceConfigContent {
@@ -335,7 +338,7 @@ impl WorkspaceConfigContent {
     self.root.is_empty()
       && self.members.is_empty()
       && self.links.is_empty()
-      && self.overrides.is_none()
+      && self.npm_overrides.is_none()
   }
 
   fn get_all_dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
@@ -589,7 +592,18 @@ impl LockfileContent {
       },
       redirects: deserialize_section(&mut json, "redirects")?,
       remote: deserialize_section(&mut json, "remote")?,
-      workspace: deserialize_section(&mut json, "workspace")?,
+      workspace: {
+        let mut workspace: WorkspaceConfigContent =
+          deserialize_section(&mut json, "workspace")?;
+        // copy overrides from packageJson section to npm_overrides field
+        if workspace.npm_overrides.is_none() {
+          if let Some(overrides) = workspace.root.package_json.overrides.take()
+          {
+            workspace.npm_overrides = Some(overrides);
+          }
+        }
+        workspace
+      },
     })
   }
 
@@ -811,10 +825,11 @@ impl Lockfile {
     let allow_content_changed =
       self.has_content_changed || !self.content.is_empty();
 
-    // check if overrides changed
-    if options.config.overrides != self.content.workspace.overrides {
+    // check if npm overrides changed
+    if options.config.npm_overrides != self.content.workspace.npm_overrides {
       self.has_content_changed = true;
-      self.content.workspace.overrides = options.config.overrides.clone();
+      self.content.workspace.npm_overrides =
+        options.config.npm_overrides.clone();
     }
 
     let has_any_patch_changed =
