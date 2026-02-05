@@ -596,11 +596,10 @@ impl LockfileContent {
         let mut workspace: WorkspaceConfigContent =
           deserialize_section(&mut json, "workspace")?;
         // copy overrides from packageJson section to npm_overrides field
-        if workspace.npm_overrides.is_none() {
-          if let Some(overrides) = workspace.root.package_json.overrides.take()
-          {
-            workspace.npm_overrides = Some(overrides);
-          }
+        if workspace.npm_overrides.is_none()
+          && let Some(overrides) = workspace.root.package_json.overrides.take()
+        {
+          workspace.npm_overrides = Some(overrides);
         }
         workspace
       },
