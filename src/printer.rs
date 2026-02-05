@@ -314,7 +314,10 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
   ) -> SerializedWorkspaceMemberConfigContent<'a> {
     SerializedWorkspaceMemberConfigContent {
       dependencies: sort_deps(&member.dependencies),
-      package_json: handle_pkg_json_content(&member.package_json, npm_overrides),
+      package_json: handle_pkg_json_content(
+        &member.package_json,
+        npm_overrides,
+      ),
     }
   }
 
@@ -349,11 +352,16 @@ pub fn print_v5_content(content: &LockfileContent) -> String {
   ) -> SerializedWorkspaceConfigContent<'_> {
     SerializedWorkspaceConfigContent {
       // pass npm_overrides only to root's packageJson section
-      root: handle_workspace_member(&content.root, content.npm_overrides.as_ref()),
+      root: handle_workspace_member(
+        &content.root,
+        content.npm_overrides.as_ref(),
+      ),
       members: content
         .members
         .iter()
-        .map(|(key, value)| (key.as_str(), handle_workspace_member(value, None)))
+        .map(|(key, value)| {
+          (key.as_str(), handle_workspace_member(value, None))
+        })
         .collect(),
       links: content
         .links
