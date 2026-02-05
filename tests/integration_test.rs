@@ -30,6 +30,7 @@ fn adding_workspace_does_not_cause_content_changes() {
         },
         members: Default::default(),
         links: Default::default(),
+        overrides: None,
       },
     });
     assert!(!lockfile.has_content_changed); // should not have changed
@@ -52,6 +53,7 @@ fn adding_workspace_does_not_cause_content_changes() {
         },
         members: Default::default(),
         links: Default::default(),
+        overrides: None,
       },
     });
     assert!(lockfile.has_content_changed);
@@ -79,6 +81,7 @@ fn adding_workspace_does_not_cause_content_changes() {
         },
         members: Default::default(),
         links: Default::default(),
+        overrides: None,
       },
     });
     assert!(lockfile.has_content_changed); // should have changed since lockfile was not empty

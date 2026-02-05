@@ -108,7 +108,7 @@ async fn config_changes_test(test: &CollectedTest) {
     optional: bool,
   }
 
-  #[derive(Debug, Default, Clone, Deserialize, Hash)]
+  #[derive(Debug, Default, Clone, Deserialize)]
   #[serde(rename_all = "camelCase")]
   struct WorkspaceConfigContent {
     #[serde(default, flatten)]
@@ -119,6 +119,8 @@ async fn config_changes_test(test: &CollectedTest) {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     links: BTreeMap<String, LinkConfigContent>,
+    #[serde(default)]
+    overrides: Option<serde_json::Value>,
   }
 
   impl WorkspaceConfigContent {
@@ -172,6 +174,7 @@ async fn config_changes_test(test: &CollectedTest) {
             )
           })
           .collect(),
+        overrides: self.overrides,
       }
     }
   }

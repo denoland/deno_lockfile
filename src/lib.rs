@@ -56,6 +56,8 @@ pub struct WorkspaceConfig {
   pub root: WorkspaceMemberConfig,
   pub members: HashMap<String, WorkspaceMemberConfig>,
   pub links: HashMap<String, LockfileLinkContent>,
+  /// npm overrides from package.json
+  pub overrides: Option<serde_json::Value>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -322,11 +324,18 @@ pub(crate) struct WorkspaceConfigContent {
   // todo(dsherret): patches is deprecated, remove in Deno 3.0
   #[serde(default, alias = "patches")]
   pub links: HashMap<String, LockfileLinkContent>,
+  /// npm overrides from package.json
+  #[serde(default)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub overrides: Option<serde_json::Value>,
 }
 
 impl WorkspaceConfigContent {
   pub fn is_empty(&self) -> bool {
-    self.root.is_empty() && self.members.is_empty() && self.links.is_empty()
+    self.root.is_empty()
+      && self.members.is_empty()
+      && self.links.is_empty()
+      && self.overrides.is_none()
   }
 
   fn get_all_dep_reqs(&self) -> impl Iterator<Item = &JsrDepPackageReq> {
@@ -801,6 +810,12 @@ impl Lockfile {
     // to !self.has_content_changed after populating it with this information
     let allow_content_changed =
       self.has_content_changed || !self.content.is_empty();
+
+    // check if overrides changed
+    if options.config.overrides != self.content.workspace.overrides {
+      self.has_content_changed = true;
+      self.content.workspace.overrides = options.config.overrides.clone();
+    }
 
     let has_any_patch_changed =
       options.config.links != self.content.workspace.links;
