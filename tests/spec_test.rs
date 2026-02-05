@@ -254,31 +254,6 @@ impl Default for TestNpmPackageInfoProvider {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Dist {
-  tarball: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VersionInfo {
-  dist: Dist,
-  #[serde(default)]
-  cpu: Vec<String>,
-  #[serde(default)]
-  os: Vec<String>,
-  #[serde(default)]
-  optional_dependencies: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PackageInfo {
-  versions: HashMap<String, VersionInfo>,
-  #[serde(rename = "dist-tags")]
-  dist_tags: HashMap<String, String>,
-}
-
 #[async_trait::async_trait(?Send)]
 impl NpmPackageInfoProvider for TestNpmPackageInfoProvider {
   async fn get_npm_package_info(
