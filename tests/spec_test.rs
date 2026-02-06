@@ -108,7 +108,7 @@ async fn config_changes_test(test: &CollectedTest) {
     optional: bool,
   }
 
-  #[derive(Debug, Default, Clone, Deserialize, Hash)]
+  #[derive(Debug, Default, Clone, Deserialize)]
   #[serde(rename_all = "camelCase")]
   struct WorkspaceConfigContent {
     #[serde(default, flatten)]
@@ -119,6 +119,9 @@ async fn config_changes_test(test: &CollectedTest) {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     links: BTreeMap<String, LinkConfigContent>,
+    #[serde(default)]
+    #[serde(alias = "overrides")]
+    npm_overrides: Option<serde_json::Value>,
   }
 
   impl WorkspaceConfigContent {
@@ -172,6 +175,7 @@ async fn config_changes_test(test: &CollectedTest) {
             )
           })
           .collect(),
+        npm_overrides: self.npm_overrides,
       }
     }
   }
@@ -248,31 +252,6 @@ impl Default for TestNpmPackageInfoProvider {
       cache: RefCell::new(HashMap::new()),
     }
   }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Dist {
-  tarball: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VersionInfo {
-  dist: Dist,
-  #[serde(default)]
-  cpu: Vec<String>,
-  #[serde(default)]
-  os: Vec<String>,
-  #[serde(default)]
-  optional_dependencies: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PackageInfo {
-  versions: HashMap<String, VersionInfo>,
-  #[serde(rename = "dist-tags")]
-  dist_tags: HashMap<String, String>,
 }
 
 #[async_trait::async_trait(?Send)]
